@@ -45,7 +45,11 @@ importers:
 
   packages/eslint-config: {}
 
-  packages/manifest: {}
+  packages/manifest:
+    dependencies:
+      '@openextkit/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/mcp-server: {}
 
