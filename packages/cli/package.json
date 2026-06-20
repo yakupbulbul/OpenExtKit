@@ -10,8 +10,11 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test"
+    "test": "pnpm build && node --test test/*.test.mjs"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "@openextkit/core": "workspace:^",
+    "@openextkit/manifest": "workspace:^",
+    "cac": "^7.0.0"
+  }
 }

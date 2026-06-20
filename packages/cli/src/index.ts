@@ -1,5 +1,338 @@
-export const openextCliName = "openext";
+#!/usr/bin/env node
+import { execFile } from "node:child_process";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
+import { loadOpenExtConfig, resolveOpenExtProject, type BrowserTarget } from "@openextkit/core";
+import {
+  createManifestReport,
+  generateAllManifests,
+  generateManifest,
+  inspectPermissions
+} from "@openextkit/manifest";
+import { cac } from "cac";
 
-export function getCliStatus(): string {
-  return "OpenExtKit CLI foundation";
+const execFileAsync = promisify(execFile);
+const validTargets = ["chrome", "firefox", "edge", "safari"] as const;
+
+type JsonOption = {
+  json?: boolean;
+};
+
+type InitOptions = {
+  template?: string;
+};
+
+export async function runCli(argv: string[] = process.argv): Promise<void> {
+  const cli = cac("openext");
+
+  cli
+    .command("init [name]", "Create a new extension project")
+    .option("--template <template>", "Starter template to use")
+    .action(async (name: string | undefined, options: InitOptions) => {
+      await initProject(name ?? "my-extension", options.template ?? "vanilla");
+    });
+
+  cli
+    .command("dev <target>", "Print development server guidance for a target")
+    .action(async (target: string) => {
+      const browserTarget = parseTarget(target);
+      const project = await resolveOpenExtProject(process.cwd());
+      assertTargetEnabled(project.enabledTargets, browserTarget);
+      console.log(`Development server support for ${browserTarget} is planned.`);
+      console.log("For now, run `openext build <target>` and load the generated dist folder.");
+    });
+
+  cli
+    .command("build [target]", "Generate manifest output for one target or all targets")
+    .action(async (target: string | undefined) => {
+      await buildTarget(target ?? "all");
+    });
+
+  cli
+    .command("test <target>", "Print browser test runner guidance")
+    .action((target: string) => {
+      parseTargetOrAll(target);
+      console.log("Browser test runner support is planned for the testing package phase.");
+    });
+
+  cli
+    .command("doctor", "Check local OpenExtKit project setup")
+    .option("--json", "Print JSON output")
+    .action(async (options: JsonOption) => {
+      const result = await runDoctor();
+      printResult(result, options.json);
+    });
+
+  cli
+    .command("inspect <kind> [target]", "Print generated manifest or permission audit")
+    .option("--json", "Print JSON output")
+    .action(async (kind: string, target: string | undefined, options: JsonOption) => {
+      const project = await resolveOpenExtProject(process.cwd());
+
+      if (kind === "manifest") {
+        const result =
+          !target || target === "all"
+            ? generateAllManifests(project)
+            : generateManifest(project, parseTarget(target));
+
+        printResult(result, options.json);
+        return;
+      }
+
+      if (kind === "permissions") {
+        const result =
+          !target || target === "all"
+            ? createManifestReport(project).targets.map((entry) => entry.permissions)
+            : inspectPermissions(project, parseTarget(target));
+
+        printResult(result, options.json);
+        return;
+      }
+
+      throw new Error(`Invalid inspect kind "${kind}". Expected "manifest" or "permissions".`);
+    });
+
+  cli
+    .command("package <target>", "Print packaging guidance")
+    .action((target: string) => {
+      parseTargetOrAll(target);
+      console.log("Packaging support is planned for the packaging package phase.");
+    });
+
+  cli.command("mcp", "Print MCP server guidance").action(() => {
+    console.log("MCP server support is planned for the mcp-server package phase.");
+  });
+
+  cli.help();
+  cli.version("0.0.0");
+  const parsed = cli.parse(argv, { run: false });
+
+  if (!cli.matchedCommand && !parsed.options.help && !parsed.options.version) {
+    throw new Error(`Unknown command: ${parsed.args.join(" ")}`);
+  }
+
+  await cli.runMatchedCommand();
 }
+
+async function initProject(name: string, template: string): Promise<void> {
+  if (template !== "vanilla") {
+    throw new Error(`Template "${template}" is not available yet. Use --template vanilla.`);
+  }
+
+  const targetDir = resolve(process.cwd(), name);
+  await ensureEmptyDirectory(targetDir);
+  await mkdir(join(targetDir, "src"), { recursive: true });
+
+  await writeFile(
+    join(targetDir, "package.json"),
+    JSON.stringify(
+      {
+        name,
+        version: "0.1.0",
+        private: true,
+        type: "module",
+        scripts: {
+          build: "openext build all",
+          doctor: "openext doctor"
+        },
+        devDependencies: {
+          "@openextkit/cli": "workspace:*",
+          "@openextkit/core": "workspace:*"
+        }
+      },
+      null,
+      2
+    ) + "\n"
+  );
+
+  await writeFile(
+    join(targetDir, "openext.config.ts"),
+    `import { defineOpenExtConfig } from "@openextkit/core";
+
+export default defineOpenExtConfig({
+  name: "${toTitle(name)}",
+  version: "0.1.0",
+  framework: "vanilla",
+  targets: {
+    chrome: {},
+    firefox: {},
+    edge: {}
+  },
+  permissions: {
+    required: ["storage"]
+  },
+  entrypoints: {
+    background: "src/background.ts"
+  }
+});
+`
+  );
+
+  await writeFile(
+    join(targetDir, "src/background.ts"),
+    `chrome.runtime.onInstalled.addListener(() => {
+  console.log("${toTitle(name)} installed");
+});
+`
+  );
+
+  await writeFile(
+    join(targetDir, "README.md"),
+    `# ${toTitle(name)}
+
+Generated by OpenExtKit.
+`
+  );
+
+  console.log(`Created ${name} using the vanilla template.`);
+}
+
+async function buildTarget(target: string): Promise<void> {
+  const project = await resolveOpenExtProject(process.cwd());
+  const outputRoot = resolve(process.cwd(), "dist");
+
+  if (target === "all") {
+    const manifests = generateAllManifests(project);
+
+    for (const [browserTarget, manifest] of Object.entries(manifests)) {
+      await writeManifest(outputRoot, browserTarget, manifest);
+    }
+
+    console.log(`Generated manifests for ${Object.keys(manifests).join(", ")}.`);
+    return;
+  }
+
+  const browserTarget = parseTarget(target);
+  const manifest = generateManifest(project, browserTarget);
+  await writeManifest(outputRoot, browserTarget, manifest);
+  console.log(`Generated manifest for ${browserTarget}.`);
+}
+
+async function writeManifest(
+  outputRoot: string,
+  target: string,
+  manifest: unknown
+): Promise<void> {
+  const targetDir = join(outputRoot, target);
+  await mkdir(targetDir, { recursive: true });
+  await writeFile(join(targetDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+async function runDoctor(): Promise<Record<string, unknown>> {
+  const checks: Array<Record<string, unknown>> = [
+    {
+      name: "node",
+      ok: true,
+      detail: process.version
+    }
+  ];
+
+  checks.push(await commandCheck("pnpm", ["--version"]));
+
+  try {
+    const config = await loadOpenExtConfig(process.cwd());
+    checks.push({
+      name: "config",
+      ok: true,
+      detail: "OpenExtKit config found"
+    });
+    checks.push({
+      name: "targets",
+      ok: true,
+      detail: Object.keys(config.targets).join(", ")
+    });
+  } catch (error) {
+    checks.push({
+      name: "config",
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error)
+    });
+  }
+
+  if (process.platform === "darwin") {
+    checks.push({
+      name: "safari",
+      ok: true,
+      detail: "Safari packaging may require Xcode in later phases"
+    });
+  }
+
+  return {
+    ok: checks.every((check) => check.ok),
+    checks
+  };
+}
+
+async function commandCheck(command: string, args: string[]): Promise<Record<string, unknown>> {
+  try {
+    const result = await execFileAsync(command, args);
+
+    return {
+      name: command,
+      ok: true,
+      detail: result.stdout.trim()
+    };
+  } catch {
+    return {
+      name: command,
+      ok: false,
+      detail: `${command} was not found on PATH`
+    };
+  }
+}
+
+async function ensureEmptyDirectory(targetDir: string): Promise<void> {
+  await mkdir(targetDir, { recursive: true });
+  const files = await readdir(targetDir);
+
+  if (files.length > 0) {
+    throw new Error(`Directory ${targetDir} is not empty.`);
+  }
+}
+
+function parseTarget(target: string): BrowserTarget {
+  if (validTargets.includes(target as BrowserTarget)) {
+    return target as BrowserTarget;
+  }
+
+  throw new Error(`Invalid target "${target}". Expected one of: ${validTargets.join(", ")}.`);
+}
+
+function parseTargetOrAll(target: string): BrowserTarget | "all" {
+  return target === "all" ? "all" : parseTarget(target);
+}
+
+function assertTargetEnabled(enabledTargets: BrowserTarget[], target: BrowserTarget): void {
+  if (!enabledTargets.includes(target)) {
+    throw new Error(`Target "${target}" is not enabled in openext.config.`);
+  }
+}
+
+function printResult(result: unknown, json = false): void {
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (typeof result === "string") {
+    console.log(result);
+    return;
+  }
+
+  console.log(JSON.stringify(result, null, 2));
+}
+
+function toTitle(value: string): string {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
+}
+
+runCli().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(message);
+  process.exitCode = 1;
+});

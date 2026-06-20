@@ -32,7 +32,17 @@ importers:
 
   packages/browser: {}
 
-  packages/cli: {}
+  packages/cli:
+    dependencies:
+      '@openextkit/core':
+        specifier: workspace:^
+        version: link:../core
+      '@openextkit/manifest':
+        specifier: workspace:^
+        version: link:../manifest
+      cac:
+        specifier: ^7.0.0
+        version: 7.0.0
 
   packages/core:
     dependencies:
@@ -252,6 +262,10 @@ packages:
   '@types/node@20.19.43':
     resolution: {integrity: sha512-6oYBAi5ikg4Pl+kGsoYtawUMBT2zZMCvPNF7pVLnHZfd1zf38DRiWn/gT01RYCdUqkv7Fhr+C9ot4/tb+2sVvA==}
 
+  cac@7.0.0:
+    resolution: {integrity: sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ==}
+    engines: {node: '>=20.19.0'}
+
   esbuild@0.28.1:
     resolution: {integrity: sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==}
     engines: {node: '>=18'}
@@ -383,6 +397,8 @@ snapshots:
   '@types/node@20.19.43':
     dependencies:
       undici-types: 6.21.0
+
+  cac@7.0.0: {}
 
   esbuild@0.28.1:
     optionalDependencies:
