@@ -40,6 +40,9 @@ importers:
       '@openextkit/manifest':
         specifier: workspace:^
         version: link:../manifest
+      '@openextkit/templates':
+        specifier: workspace:*
+        version: link:../templates
       cac:
         specifier: ^7.0.0
         version: 7.0.0
@@ -65,7 +68,14 @@ importers:
 
   packages/packaging: {}
 
-  packages/templates: {}
+  packages/templates:
+    dependencies:
+      '@openextkit/core':
+        specifier: workspace:*
+        version: link:../core
+      '@openextkit/manifest':
+        specifier: workspace:*
+        version: link:../manifest
 
   packages/testing: {}
 
