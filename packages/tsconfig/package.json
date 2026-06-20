@@ -1,0 +1,15 @@
+{
+  "name": "@openextkit/tsconfig",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "base.json"
+  ],
+  "scripts": {
+    "build": "node -e \"JSON.parse(require('fs').readFileSync('base.json', 'utf8'))\"",
+    "typecheck": "node -e \"JSON.parse(require('fs').readFileSync('base.json', 'utf8'))\"",
+    "lint": "node -e \"JSON.parse(require('fs').readFileSync('base.json', 'utf8'))\"",
+    "test": "node -e \"JSON.parse(require('fs').readFileSync('base.json', 'utf8'))\""
+  }
+}

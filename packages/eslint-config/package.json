@@ -1,0 +1,13 @@
+{
+  "name": "@openextkit/eslint-config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "build": "node --check index.js",
+    "typecheck": "node --check index.js",
+    "lint": "node --check index.js",
+    "test": "node --check index.js"
+  }
+}

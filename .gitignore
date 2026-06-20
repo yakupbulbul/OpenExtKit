@@ -1,0 +1,12 @@
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+.turbo/
+.vitepress/cache/
+.vitepress/dist/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
