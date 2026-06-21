@@ -15,6 +15,7 @@
   "dependencies": {
     "@openextkit/core": "workspace:^",
     "@openextkit/manifest": "workspace:^",
+    "@openextkit/mcp-server": "workspace:*",
     "@openextkit/packaging": "workspace:*",
     "@openextkit/testing": "workspace:*",
     "@openextkit/templates": "workspace:*",

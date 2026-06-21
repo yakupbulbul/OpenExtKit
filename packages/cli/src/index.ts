@@ -16,6 +16,7 @@ import {
   packageAllTargets,
   packageTarget as packagePackagingTarget
 } from "@openextkit/packaging";
+import { startOpenExtMcpServer } from "@openextkit/mcp-server";
 import { runAllBrowserSmokeTests, runBrowserSmokeTest } from "@openextkit/testing";
 import { isTemplateName, templateNames, writeTemplate } from "@openextkit/templates";
 import { cac } from "cac";
@@ -104,8 +105,10 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
       await packageTarget(target);
     });
 
-  cli.command("mcp", "Print MCP server guidance").action(() => {
-    console.log("MCP server support is planned for the mcp-server package phase.");
+  cli.command("mcp", "Start the OpenExtKit MCP server over stdio").action(async () => {
+    await startOpenExtMcpServer({
+      cwd: process.cwd()
+    });
   });
 
   cli.help();

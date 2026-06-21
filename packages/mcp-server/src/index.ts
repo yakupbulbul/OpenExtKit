@@ -1,1 +1,444 @@
+import { appendFile, mkdir, readdir, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import {
+  browserTargets,
+  loadOpenExtConfig,
+  resolveOpenExtProject,
+  validateOpenExtConfig,
+  type BrowserTarget,
+  type OpenExtProject
+} from "@openextkit/core";
+import {
+  createManifestReport,
+  generateManifest,
+  inspectPermissions
+} from "@openextkit/manifest";
+import {
+  buildAllTargets,
+  buildTarget,
+  packageAllTargets,
+  packageTarget
+} from "@openextkit/packaging";
+import { templateNames, writeTemplate } from "@openextkit/templates";
+import { createTestReport, runAllBrowserSmokeTests, runBrowserSmokeTest } from "@openextkit/testing";
+import { z } from "zod";
+
 export const mcpServerPackageName = "@openextkit/mcp-server";
+export const mcpToolNames = [
+  "get_project_info",
+  "validate_config",
+  "generate_manifest",
+  "inspect_permissions",
+  "check_browser_compatibility",
+  "build_target",
+  "build_all_targets",
+  "package_target",
+  "package_all_targets",
+  "run_browser_tests",
+  "run_all_browser_tests",
+  "create_extension_project",
+  "list_templates",
+  "explain_last_error",
+  "create_release_report"
+] as const;
+
+export type McpToolName = (typeof mcpToolNames)[number];
+export type McpToolStatus = "ok" | "error";
+
+export type OpenExtMcpContext = {
+  cwd: string;
+  lastError?: string;
+};
+
+export type OpenExtMcpToolResult = {
+  tool: McpToolName;
+  status: McpToolStatus;
+  data?: unknown;
+  error?: string;
+  filesChanged: string[];
+};
+
+type McpToolDefinition = {
+  name: McpToolName;
+  description: string;
+  inputSchema: z.ZodRawShape;
+  handler: (input: Record<string, unknown>, context: OpenExtMcpContext) => Promise<OpenExtMcpToolResult>;
+};
+
+const targetSchema = z.enum(browserTargets);
+const projectPathSchema = z.string().min(1).default(".");
+
+export function createOpenExtMcpServer(context: Partial<OpenExtMcpContext> = {}): McpServer {
+  const server = new McpServer({
+    name: "openextkit",
+    version: "0.0.0"
+  });
+  const serverContext: OpenExtMcpContext = {
+    cwd: resolve(context.cwd ?? process.cwd()),
+    lastError: context.lastError
+  };
+
+  for (const tool of createOpenExtMcpTools()) {
+    server.registerTool(
+      tool.name,
+      {
+        title: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema
+      },
+      async (input) => toCallToolResult(await tool.handler(input as Record<string, unknown>, serverContext))
+    );
+  }
+
+  return server;
+}
+
+export function createOpenExtMcpTools(): McpToolDefinition[] {
+  return [
+    {
+      name: "get_project_info",
+      description: "Return OpenExtKit project metadata for the current workspace.",
+      inputSchema: { projectPath: projectPathSchema },
+      handler: wrapTool("get_project_info", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        return {
+          name: project.config.name,
+          version: project.config.version,
+          rootDir: project.rootDir,
+          configPath: project.configPath,
+          enabledTargets: project.enabledTargets,
+          warnings: project.warnings
+        };
+      })
+    },
+    {
+      name: "validate_config",
+      description: "Load and validate openext.config from the workspace.",
+      inputSchema: { projectPath: projectPathSchema },
+      handler: wrapTool("validate_config", async (input, context) => {
+        const projectRoot = resolveWorkspacePath(context.cwd, readProjectPath(input));
+        const config = await loadOpenExtConfig(projectRoot);
+        return {
+          valid: true,
+          config: validateOpenExtConfig(config)
+        };
+      })
+    },
+    {
+      name: "generate_manifest",
+      description: "Generate a target-specific extension manifest.",
+      inputSchema: { projectPath: projectPathSchema, target: targetSchema },
+      handler: wrapTool("generate_manifest", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        return generateManifest(project, readTarget(input));
+      })
+    },
+    {
+      name: "inspect_permissions",
+      description: "Inspect target permissions and host permission risk.",
+      inputSchema: { projectPath: projectPathSchema, target: targetSchema },
+      handler: wrapTool("inspect_permissions", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        return inspectPermissions(project, readTarget(input));
+      })
+    },
+    {
+      name: "check_browser_compatibility",
+      description: "Create a manifest, permission, and compatibility report summary.",
+      inputSchema: { projectPath: projectPathSchema },
+      handler: wrapTool("check_browser_compatibility", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        return createManifestReport(project);
+      })
+    },
+    {
+      name: "build_target",
+      description: "Build one enabled browser target inside the current project.",
+      inputSchema: { projectPath: projectPathSchema, target: targetSchema },
+      handler: wrapTool("build_target", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        assertAllowedProject(project, context);
+        return buildTarget(project, readTarget(input));
+      }, ["dist"])
+    },
+    {
+      name: "build_all_targets",
+      description: "Build all enabled browser targets inside the current project.",
+      inputSchema: { projectPath: projectPathSchema },
+      handler: wrapTool("build_all_targets", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        assertAllowedProject(project, context);
+        return buildAllTargets(project);
+      }, ["dist"])
+    },
+    {
+      name: "package_target",
+      description: "Package one enabled browser target inside the current project.",
+      inputSchema: { projectPath: projectPathSchema, target: targetSchema },
+      handler: wrapTool("package_target", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        assertAllowedProject(project, context);
+        return packageTarget(project, readTarget(input));
+      }, ["dist"])
+    },
+    {
+      name: "package_all_targets",
+      description: "Package all enabled browser targets inside the current project.",
+      inputSchema: { projectPath: projectPathSchema },
+      handler: wrapTool("package_all_targets", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        assertAllowedProject(project, context);
+        return packageAllTargets(project);
+      }, ["dist"])
+    },
+    {
+      name: "run_browser_tests",
+      description: "Run smoke tests for one browser target using isolated profiles.",
+      inputSchema: { projectPath: projectPathSchema, target: targetSchema },
+      handler: wrapTool("run_browser_tests", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        assertAllowedProject(project, context);
+        return runBrowserSmokeTest(project, readTarget(input));
+      })
+    },
+    {
+      name: "run_all_browser_tests",
+      description: "Run smoke tests for all enabled browser targets using isolated profiles.",
+      inputSchema: { projectPath: projectPathSchema },
+      handler: wrapTool("run_all_browser_tests", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        assertAllowedProject(project, context);
+        return runAllBrowserSmokeTests(project);
+      }, ["dist/reports/test-report.json"])
+    },
+    {
+      name: "create_extension_project",
+      description: "Create a new extension project from an OpenExtKit template.",
+      inputSchema: {
+        name: z.string().min(1),
+        template: z.enum(templateNames).default("vanilla"),
+        projectPath: projectPathSchema,
+        dangerousAllowNonEmptyDirectory: z.boolean().default(false)
+      },
+      handler: wrapTool("create_extension_project", async (input, context) => {
+        const name = readRequiredString(input, "name");
+        const projectPath = readProjectPath(input);
+        const targetDir = resolveWorkspacePath(context.cwd, join(projectPath, name));
+
+        if (!Boolean(input.dangerousAllowNonEmptyDirectory)) {
+          await assertEmptyOrMissingDirectory(targetDir);
+        }
+
+        const template = readTemplate(input);
+        await writeTemplate({ template, targetDir, projectName: name });
+        return { targetDir, template };
+      }, ["openext.config.ts", "package.json"])
+    },
+    {
+      name: "list_templates",
+      description: "List available OpenExtKit project templates.",
+      inputSchema: {},
+      handler: wrapTool("list_templates", async () => ({ templates: templateNames }))
+    },
+    {
+      name: "explain_last_error",
+      description: "Return the last MCP tool error observed by this server process.",
+      inputSchema: {},
+      handler: wrapTool("explain_last_error", async (_input, context) => ({
+        lastError: context.lastError ?? null,
+        guidance: context.lastError
+          ? "Review the referenced path and rerun the specific OpenExtKit tool after fixing the issue."
+          : "No previous MCP tool error has been recorded."
+      }))
+    },
+    {
+      name: "create_release_report",
+      description: "Write a local release report summarizing manifests, permissions, packages, and tests.",
+      inputSchema: { projectPath: projectPathSchema },
+      handler: wrapTool("create_release_report", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        assertAllowedProject(project, context);
+        const report = {
+          project: {
+            name: project.config.name,
+            version: project.config.version,
+            rootDir: project.rootDir
+          },
+          generatedAt: new Date().toISOString(),
+          manifest: createManifestReport(project),
+          tests: await createTestReport(project)
+        };
+        const reportPath = join(project.rootDir, "dist", "reports", "release-report.json");
+        await mkdir(dirname(reportPath), { recursive: true });
+        await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+        return { reportPath, report };
+      }, ["dist/reports/release-report.json"])
+    }
+  ];
+}
+
+export async function runOpenExtMcpTool(
+  name: McpToolName,
+  input: Record<string, unknown> = {},
+  context: Partial<OpenExtMcpContext> = {}
+): Promise<OpenExtMcpToolResult> {
+  const tool = createOpenExtMcpTools().find((candidate) => candidate.name === name);
+  if (!tool) {
+    throw new Error(`Unknown OpenExtKit MCP tool: ${name}`);
+  }
+
+  return tool.handler(input, {
+    cwd: resolve(context.cwd ?? process.cwd()),
+    lastError: context.lastError
+  });
+}
+
+export async function startOpenExtMcpServer(context: Partial<OpenExtMcpContext> = {}): Promise<void> {
+  const server = createOpenExtMcpServer(context);
+  await server.connect(new StdioServerTransport());
+}
+
+function wrapTool(
+  tool: McpToolName,
+  execute: (input: Record<string, unknown>, context: OpenExtMcpContext) => Promise<unknown>,
+  filesChanged: string[] = []
+): McpToolDefinition["handler"] {
+  return async (input, context) => {
+    const inputSummary = summarizeInput(input);
+
+    try {
+      const data = await execute(input, context);
+      const result: OpenExtMcpToolResult = { tool, status: "ok", data, filesChanged };
+      await writeAuditLog(context.cwd, tool, inputSummary, "ok", filesChanged);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      context.lastError = message;
+      const result: OpenExtMcpToolResult = { tool, status: "error", error: message, filesChanged: [] };
+      await writeAuditLog(context.cwd, tool, inputSummary, "error", []);
+      return result;
+    }
+  };
+}
+
+function toCallToolResult(result: OpenExtMcpToolResult): CallToolResult {
+  return {
+    isError: result.status === "error",
+    content: [{ type: "text", text: JSON.stringify(redactSecrets(result), null, 2) }]
+  };
+}
+
+async function resolveProject(context: OpenExtMcpContext, projectPath: string): Promise<OpenExtProject> {
+  return resolveOpenExtProject(resolveWorkspacePath(context.cwd, projectPath));
+}
+
+function assertAllowedProject(project: OpenExtProject, context: OpenExtMcpContext): void {
+  resolveWorkspacePath(context.cwd, relative(context.cwd, project.rootDir));
+}
+
+function resolveWorkspacePath(workspaceRoot: string, requestedPath: string): string {
+  const root = resolve(workspaceRoot);
+  const candidate = resolve(root, requestedPath);
+  const relativePath = relative(root, candidate);
+
+  if (relativePath !== "" && (relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath))) {
+    throw new Error(`Path "${requestedPath}" is outside the MCP workspace root.`);
+  }
+
+  return candidate;
+}
+
+function readProjectPath(input: Record<string, unknown>): string {
+  return typeof input.projectPath === "string" ? input.projectPath : ".";
+}
+
+function readTarget(input: Record<string, unknown>): BrowserTarget {
+  const target = input.target;
+
+  if (typeof target === "string" && browserTargets.includes(target as BrowserTarget)) {
+    return target as BrowserTarget;
+  }
+
+  throw new Error(`Invalid or missing target. Expected one of: ${browserTargets.join(", ")}.`);
+}
+
+function readTemplate(input: Record<string, unknown>): (typeof templateNames)[number] {
+  const template = input.template ?? "vanilla";
+
+  if (typeof template === "string" && templateNames.includes(template as (typeof templateNames)[number])) {
+    return template as (typeof templateNames)[number];
+  }
+
+  throw new Error(`Invalid template. Expected one of: ${templateNames.join(", ")}.`);
+}
+
+function readRequiredString(input: Record<string, unknown>, key: string): string {
+  const value = input[key];
+
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+
+  throw new Error(`Missing required string argument "${key}".`);
+}
+
+async function assertEmptyOrMissingDirectory(targetDir: string): Promise<void> {
+  try {
+    const entries = await readdir(targetDir);
+    if (entries.length > 0) {
+      throw new Error(`Directory ${targetDir} already exists and is not empty.`);
+    }
+  } catch (error) {
+    const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+    if (code === "ENOENT") {
+      return;
+    }
+
+    throw error;
+  }
+}
+
+async function writeAuditLog(
+  workspaceRoot: string,
+  tool: McpToolName,
+  inputSummary: Record<string, unknown>,
+  status: McpToolStatus,
+  filesChanged: string[]
+): Promise<void> {
+  const auditPath = join(workspaceRoot, ".openextkit", "audit.log");
+  await mkdir(dirname(auditPath), { recursive: true });
+  await appendFile(
+    auditPath,
+    `${JSON.stringify({ timestamp: new Date().toISOString(), tool, inputSummary, status, filesChanged })}\n`
+  );
+}
+
+function summarizeInput(input: Record<string, unknown>): Record<string, unknown> {
+  const summary: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(redactSecrets(input))) {
+    summary[key] = typeof value === "string" && value.length > 120 ? `${value.slice(0, 117)}...` : value;
+  }
+
+  return summary;
+}
+
+function redactSecrets<T>(value: T): T {
+  return JSON.parse(
+    JSON.stringify(value, (key, currentValue) =>
+      /secret|token|password|cookie|authorization/i.test(key) ? "[redacted]" : currentValue
+    )
+  ) as T;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  startOpenExtMcpServer().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exitCode = 1;
+  });
+}
