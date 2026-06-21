@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -25,8 +25,13 @@ import {
   packageAllTargets,
   packageTarget
 } from "@openextkit/packaging";
+import {
+  createReleaseReport as createReleaseReportArtifact,
+  generateStoreMetadata,
+  runPublishCheck
+} from "@openextkit/release";
 import { templateNames, writeTemplate } from "@openextkit/templates";
-import { createTestReport, runAllBrowserSmokeTests, runBrowserSmokeTest } from "@openextkit/testing";
+import { runAllBrowserSmokeTests, runBrowserSmokeTest } from "@openextkit/testing";
 import { z } from "zod";
 
 export const mcpServerPackageName = "@openextkit/mcp-server";
@@ -47,6 +52,8 @@ export const mcpToolNames = [
   "list_browser_targets",
   "inspect_browser_target",
   "suggest_target_changes",
+  "generate_store_metadata",
+  "run_publish_check",
   "explain_last_error",
   "create_release_report"
 ] as const;
@@ -286,6 +293,26 @@ export function createOpenExtMcpTools(): McpToolDefinition[] {
       })
     },
     {
+      name: "generate_store_metadata",
+      description: "Generate store listing metadata files for enabled targets without publishing.",
+      inputSchema: { projectPath: projectPathSchema },
+      handler: wrapTool("generate_store_metadata", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        assertAllowedProject(project, context);
+        return generateStoreMetadata(project);
+      }, ["dist/store"])
+    },
+    {
+      name: "run_publish_check",
+      description: "Run publish readiness checks without publishing to browser stores.",
+      inputSchema: { projectPath: projectPathSchema },
+      handler: wrapTool("run_publish_check", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        assertAllowedProject(project, context);
+        return runPublishCheck(project);
+      })
+    },
+    {
       name: "explain_last_error",
       description: "Return the last MCP tool error observed by this server process.",
       inputSchema: {},
@@ -303,21 +330,8 @@ export function createOpenExtMcpTools(): McpToolDefinition[] {
       handler: wrapTool("create_release_report", async (input, context) => {
         const project = await resolveProject(context, readProjectPath(input));
         assertAllowedProject(project, context);
-        const report = {
-          project: {
-            name: project.config.name,
-            version: project.config.version,
-            rootDir: project.rootDir
-          },
-          generatedAt: new Date().toISOString(),
-          manifest: createManifestReport(project),
-          tests: await createTestReport(project)
-        };
-        const reportPath = join(project.rootDir, "dist", "reports", "release-report.json");
-        await mkdir(dirname(reportPath), { recursive: true });
-        await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-        return { reportPath, report };
-      }, ["dist/reports/release-report.json"])
+        return createReleaseReportArtifact(project);
+      }, ["dist/reports/release-report.json", "dist/reports/release-report.md", "dist/store"])
     }
   ];
 }

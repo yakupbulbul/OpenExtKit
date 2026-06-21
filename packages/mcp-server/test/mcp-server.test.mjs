@@ -18,6 +18,7 @@ async function createProject() {
       export default {
         name: "MCP Fixture",
         version: "0.1.0",
+        description: "MCP fixture description.",
         targets: {
           chrome: {},
           firefox: {}
@@ -32,6 +33,8 @@ async function createProject() {
       };
     `
   );
+  await writeFile(join(cwd, "README.md"), "# MCP Fixture\n");
+  await writeFile(join(cwd, "LICENSE"), "MIT\n");
   await mkdir(join(cwd, "src"), { recursive: true });
   await writeFile(join(cwd, "src/background.js"), "console.log('background');\n");
   return cwd;
@@ -178,6 +181,29 @@ test("browser target MCP tools work", async () => {
     assert.equal(list.data.targets.some((target) => target.name === "chrome"), true);
     assert.equal(inspect.data.supportsManifestV3, true);
     assert.equal(Array.isArray(suggestions.data.suggestions), true);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("release MCP tools generate metadata and reports", async () => {
+  const cwd = await createProject();
+
+  try {
+    const metadata = await runOpenExtMcpTool("generate_store_metadata", {}, { cwd });
+    const check = await runOpenExtMcpTool("run_publish_check", {}, { cwd });
+    const report = await runOpenExtMcpTool("create_release_report", {}, { cwd });
+    const description = await readFile(join(cwd, "dist/store/chrome/description.md"), "utf8");
+    const markdown = await readFile(join(cwd, "dist/reports/release-report.md"), "utf8");
+
+    assert.equal(metadata.status, "ok");
+    assert.equal(metadata.data.files.some((file) => file.endsWith("chrome/description.md")), true);
+    assert.equal(check.status, "ok");
+    assert.equal(check.data.checks.some((entry) => entry.name === "package.exists"), true);
+    assert.equal(report.status, "ok");
+    assert.equal(report.data.files.markdown.endsWith("release-report.md"), true);
+    assert.match(description, /MCP fixture description/);
+    assert.match(markdown, /Release Report/);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

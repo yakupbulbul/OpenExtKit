@@ -17,6 +17,7 @@
     "@openextkit/manifest": "workspace:^",
     "@openextkit/mcp-server": "workspace:*",
     "@openextkit/packaging": "workspace:*",
+    "@openextkit/release": "workspace:*",
     "@openextkit/testing": "workspace:*",
     "@openextkit/templates": "workspace:*",
     "cac": "^7.0.0"

@@ -1,5 +1,5 @@
 {
-  "name": "@openextkit/mcp-server",
+  "name": "@openextkit/release",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -16,13 +16,7 @@
     "test": "pnpm build && node --test test/*.test.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "@openextkit/core": "workspace:^",
-    "@openextkit/manifest": "workspace:^",
-    "@openextkit/packaging": "workspace:^",
-    "@openextkit/release": "workspace:*",
-    "@openextkit/templates": "workspace:^",
-    "@openextkit/testing": "workspace:^",
-    "zod": "^4.4.3"
+    "@openextkit/core": "workspace:*",
+    "@openextkit/manifest": "workspace:*"
   }
 }

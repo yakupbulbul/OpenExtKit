@@ -28,6 +28,7 @@ async function createConfiguredProject() {
       export default {
         name: "CLI Test",
         version: "0.1.0",
+        description: "CLI test description.",
         targets: {
           chrome: {},
           firefox: {}
@@ -42,6 +43,8 @@ async function createConfiguredProject() {
       };
     `
   );
+  await writeFile(join(cwd, "README.md"), "# CLI Test\n");
+  await writeFile(join(cwd, "LICENSE"), "MIT\n");
   await mkdir(join(cwd, "src"), { recursive: true });
   await writeFile(join(cwd, "src/background.ts"), "console.log('background');\n");
 
@@ -159,6 +162,29 @@ test("targets commands expose browser capabilities", async () => {
 
   assert.match(list.stdout, /Chrome/);
   assert.match(inspect.stdout, /supportsManifestV3/);
+});
+
+test("release commands write publish readiness artifacts", async () => {
+  const cwd = await createConfiguredProject();
+
+  try {
+    const assets = await runCli(["store-assets"], { cwd });
+    const check = await runCli(["publish-check"], { cwd });
+    const report = await runCli(["release-report"], { cwd });
+    const description = await readFile(join(cwd, "dist/store/chrome/description.md"), "utf8");
+    const markdown = await readFile(join(cwd, "dist/reports/release-report.md"), "utf8");
+    const json = JSON.parse(await readFile(join(cwd, "dist/reports/release-report.json"), "utf8"));
+    const parsedCheck = JSON.parse(check.stdout);
+
+    assert.match(assets.stdout, /Store metadata written/);
+    assert.match(report.stdout, /Release report written/);
+    assert.match(description, /CLI test description/);
+    assert.match(markdown, /Release Report/);
+    assert.equal(json.project.name, "CLI Test");
+    assert.equal(parsedCheck.checks.some((entry) => entry.name === "package.exists"), true);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });
 
 test("invalid target fails", async () => {

@@ -16,6 +16,7 @@ import {
   packageAllTargets,
   packageTarget as packagePackagingTarget
 } from "@openextkit/packaging";
+import { createReleaseReport, generateStoreMetadata, runPublishCheck } from "@openextkit/release";
 import { startOpenExtMcpServer } from "@openextkit/mcp-server";
 import { runAllBrowserSmokeTests, runBrowserSmokeTest } from "@openextkit/testing";
 import { isTemplateName, templateNames, writeTemplate } from "@openextkit/templates";
@@ -126,6 +127,23 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     .action(async (target: string) => {
       await packageTarget(target);
     });
+
+  cli.command("release-report", "Generate release readiness reports").action(async () => {
+    const project = await resolveOpenExtProject(process.cwd());
+    const report = await createReleaseReport(project);
+    console.log(`Release report written to ${report.files.markdown}.`);
+  });
+
+  cli.command("store-assets", "Generate store metadata assets").action(async () => {
+    const project = await resolveOpenExtProject(process.cwd());
+    const result = await generateStoreMetadata(project);
+    console.log(`Store metadata written to ${result.storeDir}.`);
+  });
+
+  cli.command("publish-check", "Run publish readiness checks without publishing").action(async () => {
+    const project = await resolveOpenExtProject(process.cwd());
+    printResult(await runPublishCheck(project));
+  });
 
   cli.command("mcp", "Start the OpenExtKit MCP server over stdio").action(async () => {
     await startOpenExtMcpServer({
