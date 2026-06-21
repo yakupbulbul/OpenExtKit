@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "openext build all",
-    "package": "openext package all",
+    "build": "node ../../packages/cli/dist/index.js build all",
+    "package": "node ../../packages/cli/dist/index.js package all",
     "typecheck": "node --check test/basic.test.mjs",
     "lint": "node --check test/basic.test.mjs",
     "test": "node --test test/*.test.mjs"
