@@ -4,9 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node --check index.js",
-    "typecheck": "node --check index.js",
-    "lint": "node --check index.js",
-    "test": "node --check index.js"
+    "build": "vitepress build .",
+    "typecheck": "node --check .vitepress/config.ts",
+    "lint": "node --check .vitepress/config.ts",
+    "test": "node --check .vitepress/config.ts"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
   }
 }

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="OpenExtKit">
+  <rect width="32" height="32" rx="7" fill="#111827"/>
+  <path d="M8 10h16v4H13v4h9v4H8z" fill="#38bdf8"/>
+  <path d="M17 18h7v4h-7z" fill="#a7f3d0"/>
+</svg>
