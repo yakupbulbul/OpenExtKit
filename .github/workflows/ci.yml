@@ -5,10 +5,69 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 jobs:
-  checks:
+  quality:
+    name: Quality (${{ matrix.os }}, Node ${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        node-version: [20, 22]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  examples:
+    name: Example validation (${{ matrix.example.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        example:
+          - name: vanilla-extension
+            package: "@openextkit/example-vanilla-extension"
+            dir: examples/vanilla-extension
+          - name: react-popup
+            package: "@openextkit/example-react-popup"
+            dir: examples/react-popup
+          - name: focus-blocker
+            package: "@openextkit/example-focus-blocker"
+            dir: examples/focus-blocker
+          - name: content-script
+            package: "@openextkit/example-content-script"
+            dir: examples/content-script
+          - name: new-tab
+            package: "@openextkit/example-new-tab"
+            dir: examples/new-tab
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,14 +86,87 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Test
-        run: pnpm test
-
-      - name: Build
+      - name: Build packages
         run: pnpm build
+
+      - name: Build example
+        run: pnpm --filter "${{ matrix.example.package }}" build
+
+      - name: Package example
+        run: pnpm --filter "${{ matrix.example.package }}" package
+
+      - name: Run example tests
+        run: pnpm --filter "${{ matrix.example.package }}" test
+
+      - name: Run capability-aware smoke tests
+        working-directory: ${{ matrix.example.dir }}
+        run: pnpm exec openext test all
+
+      - name: Generate release report
+        working-directory: ${{ matrix.example.dir }}
+        run: pnpm exec openext release-report
+
+      - name: Upload example reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openextkit-${{ matrix.example.name }}-reports
+          path: ${{ matrix.example.dir }}/dist/reports
+          if-no-files-found: warn
+
+  safari-docs:
+    name: Safari docs and output check
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build docs
+        run: pnpm --filter @openextkit/docs build
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Create Safari fixture
+        run: |
+          mkdir -p safari-ci/src
+          cat > safari-ci/openext.config.mjs <<'EOF'
+          export default {
+            name: "Safari CI Fixture",
+            version: "0.0.0",
+            description: "CI fixture for Safari experimental output.",
+            targets: {
+              safari: {}
+            },
+            entrypoints: {
+              background: "src/background.js"
+            }
+          };
+          EOF
+          echo "console.log('safari ci fixture');" > safari-ci/src/background.js
+
+      - name: Generate Safari experimental output
+        working-directory: safari-ci
+        run: node ../packages/cli/dist/index.js package safari
+
+      - name: Upload Safari output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: openextkit-safari-experimental-output
+          path: safari-ci/dist/safari
+          if-no-files-found: warn
