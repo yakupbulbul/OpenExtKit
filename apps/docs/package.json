@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "vitepress build .",
-    "typecheck": "node --check .vitepress/config.ts",
-    "lint": "node --check .vitepress/config.ts",
-    "test": "node --check .vitepress/config.ts"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "vitepress": "^1.6.4"
