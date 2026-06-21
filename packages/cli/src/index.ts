@@ -16,6 +16,7 @@ import {
   packageAllTargets,
   packageTarget as packagePackagingTarget
 } from "@openextkit/packaging";
+import { runAllBrowserSmokeTests, runBrowserSmokeTest } from "@openextkit/testing";
 import { isTemplateName, templateNames, writeTemplate } from "@openextkit/templates";
 import { cac } from "cac";
 
@@ -56,12 +57,9 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
       await buildTarget(target ?? "all");
     });
 
-  cli
-    .command("test <target>", "Print browser test runner guidance")
-    .action((target: string) => {
-      parseTargetOrAll(target);
-      console.log("Browser test runner support is planned for the testing package phase.");
-    });
+  cli.command("test <target>", "Run browser extension smoke tests").action(async (target: string) => {
+    await testTarget(target);
+  });
 
   cli
     .command("doctor", "Check local OpenExtKit project setup")
@@ -169,6 +167,20 @@ async function packageTarget(target: string): Promise<void> {
   }
 
   console.log(`Built ${browserTarget}; Safari package archives require Xcode-specific steps.`);
+}
+
+async function testTarget(target: string): Promise<void> {
+  const project = await resolveOpenExtProject(process.cwd());
+
+  if (target === "all") {
+    const report = await runAllBrowserSmokeTests(project);
+    console.log(`Smoke-tested targets: ${report.targets.map((entry) => `${entry.target}:${entry.status}`).join(", ")}.`);
+    return;
+  }
+
+  const browserTarget = parseTarget(target);
+  const result = await runBrowserSmokeTest(project, browserTarget);
+  console.log(`Smoke-tested ${browserTarget}: ${result.status}.`);
 }
 
 async function runDoctor(): Promise<Record<string, unknown>> {

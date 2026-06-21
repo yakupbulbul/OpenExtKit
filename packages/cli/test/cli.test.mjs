@@ -138,6 +138,21 @@ test("package writes target zip", async () => {
   }
 });
 
+test("test all writes browser smoke report", async () => {
+  const cwd = await createConfiguredProject();
+
+  try {
+    await runCli(["build", "all"], { cwd });
+    const result = await runCli(["test", "all"], { cwd });
+    const report = JSON.parse(await readFile(join(cwd, "dist/reports/test-report.json"), "utf8"));
+
+    assert.match(result.stdout, /Smoke-tested targets/);
+    assert.deepEqual(report.targets.map((entry) => entry.target), ["chrome", "firefox"]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("invalid target fails", async () => {
   const cwd = await createConfiguredProject();
 

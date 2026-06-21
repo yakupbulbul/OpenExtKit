@@ -46,6 +46,9 @@ importers:
       '@openextkit/templates':
         specifier: workspace:*
         version: link:../templates
+      '@openextkit/testing':
+        specifier: workspace:*
+        version: link:../testing
       cac:
         specifier: ^7.0.0
         version: 7.0.0
@@ -87,7 +90,17 @@ importers:
         specifier: workspace:*
         version: link:../manifest
 
-  packages/testing: {}
+  packages/testing:
+    dependencies:
+      '@openextkit/browser':
+        specifier: workspace:^
+        version: link:../browser
+      '@openextkit/core':
+        specifier: workspace:^
+        version: link:../core
+      playwright-core:
+        specifier: ^1.61.0
+        version: 1.61.0
 
   packages/tsconfig: {}
 
@@ -296,6 +309,11 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
+  playwright-core@1.61.0:
+    resolution: {integrity: sha512-caX7TrY3Ml6egyDX0WUcTHDxodl/b51y5wJOdCEA36QviK/s2g081hvmGs8eaE3DWb6NYZQ6BjO/QkNRPenoPA==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   tsx@4.22.4:
     resolution: {integrity: sha512-X8EX+XV4QR5xCsrgxaED954zTDfY8KqlDtskKEL0cHhyS/P8b4IFOvGDQpsC9Q1XnLq915wEfwwY/zzskCtmhg==}
     engines: {node: '>=18.0.0'}
@@ -451,6 +469,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  playwright-core@1.61.0: {}
 
   tsx@4.22.4:
     dependencies:
