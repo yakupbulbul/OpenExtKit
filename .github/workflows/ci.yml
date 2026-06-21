@@ -100,11 +100,11 @@ jobs:
 
       - name: Run capability-aware smoke tests
         working-directory: ${{ matrix.example.dir }}
-        run: pnpm exec openext test all
+        run: node ../../packages/cli/dist/index.js test all
 
       - name: Generate release report
         working-directory: ${{ matrix.example.dir }}
-        run: pnpm exec openext release-report
+        run: node ../../packages/cli/dist/index.js release-report
 
       - name: Upload example reports
         uses: actions/upload-artifact@v4
