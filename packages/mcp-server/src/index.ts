@@ -6,6 +6,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   browserTargets,
+  getTarget,
+  listTargets,
   loadOpenExtConfig,
   resolveOpenExtProject,
   validateOpenExtConfig,
@@ -42,6 +44,9 @@ export const mcpToolNames = [
   "run_all_browser_tests",
   "create_extension_project",
   "list_templates",
+  "list_browser_targets",
+  "inspect_browser_target",
+  "suggest_target_changes",
   "explain_last_error",
   "create_release_report"
 ] as const;
@@ -243,6 +248,42 @@ export function createOpenExtMcpTools(): McpToolDefinition[] {
       description: "List available OpenExtKit project templates.",
       inputSchema: {},
       handler: wrapTool("list_templates", async () => ({ templates: templateNames }))
+    },
+    {
+      name: "list_browser_targets",
+      description: "List registered browser targets and their primary capabilities.",
+      inputSchema: {},
+      handler: wrapTool("list_browser_targets", async () => ({ targets: listTargets() }))
+    },
+    {
+      name: "inspect_browser_target",
+      description: "Inspect one browser target capability record.",
+      inputSchema: { target: targetSchema },
+      handler: wrapTool("inspect_browser_target", async (input) => getTarget(readTarget(input)))
+    },
+    {
+      name: "suggest_target_changes",
+      description: "Suggest target capability changes for a project based on configured targets.",
+      inputSchema: { projectPath: projectPathSchema },
+      handler: wrapTool("suggest_target_changes", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        return {
+          suggestions: project.enabledTargets.flatMap((target) => {
+            const capabilities = getTarget(target);
+            const suggestions: string[] = [];
+
+            if (capabilities.experimental) {
+              suggestions.push(`${capabilities.displayName} is experimental; keep package and test fallbacks explicit.`);
+            }
+
+            if (!capabilities.supportsExtensionLoadingInTests) {
+              suggestions.push(`${capabilities.displayName} does not support automated extension loading in the current runner.`);
+            }
+
+            return suggestions;
+          })
+        };
+      })
     },
     {
       name: "explain_last_error",

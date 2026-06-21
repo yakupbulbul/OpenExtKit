@@ -4,6 +4,7 @@ import type {
   OpenExtContentScript,
   OpenExtProject
 } from "@openextkit/core";
+import { getTarget } from "@openextkit/core";
 
 export type ExtensionManifest = {
   manifest_version: 3;
@@ -131,7 +132,7 @@ export function generateManifest(project: OpenExtProject, target: BrowserTarget)
     manifest.content_scripts = config.entrypoints.contentScripts.map(toManifestContentScript);
   }
 
-  if (target === "firefox") {
+  if (getTarget(target).supportsBrowserSpecificSettings) {
     manifest.browser_specific_settings = {
       gecko: {}
     };
@@ -173,14 +174,16 @@ export function validateManifest(
     }
   }
 
-  if (target === "safari") {
+  const capabilities = getTarget(target);
+
+  if (capabilities.experimental) {
     warnings.push(
-      "Safari manifest output is experimental and may require conversion through Xcode tooling."
+      `${capabilities.displayName} manifest output is experimental and may require target-specific tooling.`
     );
   }
 
-  if (target === "firefox" && !manifest.browser_specific_settings?.gecko) {
-    warnings.push("Firefox extensions may require browser_specific_settings.gecko metadata.");
+  if (capabilities.supportsBrowserSpecificSettings && !manifest.browser_specific_settings?.gecko) {
+    warnings.push(`${capabilities.displayName} extensions may require browser_specific_settings.gecko metadata.`);
   }
 
   return {

@@ -166,6 +166,23 @@ test("audit log is written", async () => {
   }
 });
 
+test("browser target MCP tools work", async () => {
+  const cwd = await createProject();
+
+  try {
+    const list = await runOpenExtMcpTool("list_browser_targets", {}, { cwd });
+    const inspect = await runOpenExtMcpTool("inspect_browser_target", { target: "chrome" }, { cwd });
+    const suggestions = await runOpenExtMcpTool("suggest_target_changes", {}, { cwd });
+
+    assert.equal(list.status, "ok");
+    assert.equal(list.data.targets.some((target) => target.name === "chrome"), true);
+    assert.equal(inspect.data.supportsManifestV3, true);
+    assert.equal(Array.isArray(suggestions.data.suggestions), true);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("tool rejects paths outside workspace", async () => {
   const cwd = await createProject();
 

@@ -136,6 +136,20 @@ test("unsupported capability warning is explicit", async () => {
   assert.match(result.warnings.join("\n"), /unsupported capability/);
 });
 
+test("testing package reads target capabilities", async () => {
+  const cwd = await createProject({ targets: { safari: {} } });
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const result = await runBrowserSmokeTest(project, "safari");
+
+    assert.equal(result.checks.some((check) => check.name === "browser.capability"), true);
+    assert.match(result.warnings.join("\n"), /unsupported capability/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("test all aggregates results and writes a report", async () => {
   const cwd = await createProject();
 

@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { getTarget } from "@openextkit/core";
 import type { BrowserTarget, OpenExtContentScript, OpenExtProject } from "@openextkit/core";
 
 export type TestStatus = "passed" | "warning" | "failed";
@@ -334,10 +335,12 @@ function runWrapperMockChecks(checks: TestCheck[]): void {
 }
 
 function getTestingCapability(target: BrowserTarget): { supported: boolean; message: string } {
-  if (target === "chrome" || target === "edge") {
+  const capabilities = getTarget(target);
+
+  if (capabilities.supportsExtensionLoadingInTests) {
     return {
       supported: true,
-      message: `${target} extension loading is supported when a browser executable is configured.`
+      message: `${capabilities.displayName} extension loading is supported when a browser executable is configured.`
     };
   }
 

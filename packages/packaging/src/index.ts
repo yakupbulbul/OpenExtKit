@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { getTarget } from "@openextkit/core";
 import type { BrowserTarget, OpenExtProject } from "@openextkit/core";
 import {
   createManifestReport,
@@ -48,13 +49,14 @@ export async function buildTarget(
   const manifest = generateManifest(project, target);
   const copiedFiles = await copyEntrypointFiles(project, outputDir);
   const manifestPath = join(outputDir, "manifest.json");
-  const warnings = target === "safari" ? safariWarnings() : [];
+  const capabilities = getTarget(target);
+  const warnings = capabilities.experimental ? safariWarnings(capabilities.displayName) : [];
 
   await mkdir(outputDir, { recursive: true });
   await writeJson(manifestPath, manifest);
 
-  if (target === "safari") {
-    await writeFile(join(outputDir, "README-SAFARI.md"), safariReadme(project.config.name));
+  if (capabilities.packageFormat === "directory") {
+    await writeFile(join(outputDir, "README-SAFARI.md"), safariReadme(project.config.name, capabilities.displayName));
   }
 
   await writeReports(project);
@@ -89,7 +91,9 @@ export async function packageTarget(
 ): Promise<PackageTargetResult> {
   const build = await buildTarget(project, target);
 
-  if (target === "safari") {
+  const capabilities = getTarget(target);
+
+  if (capabilities.packageFormat === "directory") {
     return build;
   }
 
@@ -207,9 +211,11 @@ async function writeReports(project: OpenExtProject): Promise<void> {
   const compatibilityReport = {
     targets: project.enabledTargets.map((target) => ({
       target,
-      supported: target !== "safari",
-      experimental: target === "safari",
-      warnings: target === "safari" ? safariWarnings() : []
+      displayName: getTarget(target).displayName,
+      supported: getTarget(target).packageFormat === "zip",
+      experimental: getTarget(target).experimental,
+      packageFormat: getTarget(target).packageFormat,
+      warnings: getTarget(target).experimental ? safariWarnings(getTarget(target).displayName) : []
     }))
   };
 
@@ -234,18 +240,18 @@ function assertTargetEnabled(project: OpenExtProject, target: BrowserTarget): vo
   }
 }
 
-function safariWarnings(): string[] {
+function safariWarnings(displayName = "Safari"): string[] {
   return [
-    "Safari output is experimental and may require macOS, Xcode, and Safari Web Extension conversion steps."
+    `${displayName} output is experimental and may require target-specific conversion or packaging steps.`
   ];
 }
 
-function safariReadme(extensionName: string): string {
-  return `# Safari Output
+function safariReadme(extensionName: string, displayName = "Safari"): string {
+  return `# ${displayName} Output
 
-${extensionName} includes experimental Safari output.
+${extensionName} includes experimental ${displayName} output.
 
-Safari packaging may require macOS, Xcode, and Safari Web Extension conversion steps. OpenExtKit does not block other browser builds on Safari-specific requirements.
+${displayName} packaging may require additional target-specific conversion steps. OpenExtKit does not block other browser builds on these requirements.
 `;
 }
 

@@ -21,6 +21,58 @@ export const configFileNames = [
 export type BrowserTarget = (typeof browserTargets)[number];
 export type ExtensionFramework = (typeof extensionFrameworks)[number];
 
+export type PackageFormat = "zip" | "directory";
+
+export interface TargetCapabilities {
+  name: string;
+  displayName: string;
+  manifestVersions: number[];
+  supportsManifestV3: boolean;
+  supportsServiceWorkerBackground: boolean;
+  supportsBackgroundScripts: boolean;
+  supportsDeclarativeNetRequest: boolean;
+  supportsSidePanel: boolean;
+  supportsAction: boolean;
+  supportsBrowserSpecificSettings: boolean;
+  supportsExtensionLoadingInTests: boolean;
+  packageFormat: PackageFormat;
+  experimental: boolean;
+}
+
+export interface BrowserTargetDefinition extends TargetCapabilities {}
+
+export class TargetRegistry {
+  readonly #targets = new Map<string, TargetCapabilities>();
+
+  constructor(targets: TargetCapabilities[] = []) {
+    for (const target of targets) {
+      this.registerTarget(target);
+    }
+  }
+
+  registerTarget(target: TargetCapabilities): TargetCapabilities {
+    this.#targets.set(target.name, { ...target, manifestVersions: [...target.manifestVersions] });
+    return this.getTarget(target.name);
+  }
+
+  getTarget(name: string): TargetCapabilities {
+    const target = this.#targets.get(name);
+
+    if (!target) {
+      throw new OpenExtConfigError(`Unknown browser target "${name}".`);
+    }
+
+    return { ...target, manifestVersions: [...target.manifestVersions] };
+  }
+
+  listTargets(): TargetCapabilities[] {
+    return [...this.#targets.values()].map((target) => ({
+      ...target,
+      manifestVersions: [...target.manifestVersions]
+    }));
+  }
+}
+
 export type OpenExtTargetConfig = {
   manifest: 3;
   experimental?: boolean;
@@ -71,6 +123,83 @@ export class OpenExtConfigError extends Error {
     this.name = "OpenExtConfigError";
     this.issues = issues;
   }
+}
+
+const builtInTargets: TargetCapabilities[] = [
+  {
+    name: "chrome",
+    displayName: "Chrome",
+    manifestVersions: [3],
+    supportsManifestV3: true,
+    supportsServiceWorkerBackground: true,
+    supportsBackgroundScripts: false,
+    supportsDeclarativeNetRequest: true,
+    supportsSidePanel: true,
+    supportsAction: true,
+    supportsBrowserSpecificSettings: false,
+    supportsExtensionLoadingInTests: true,
+    packageFormat: "zip",
+    experimental: false
+  },
+  {
+    name: "firefox",
+    displayName: "Firefox",
+    manifestVersions: [3],
+    supportsManifestV3: true,
+    supportsServiceWorkerBackground: true,
+    supportsBackgroundScripts: false,
+    supportsDeclarativeNetRequest: false,
+    supportsSidePanel: false,
+    supportsAction: true,
+    supportsBrowserSpecificSettings: true,
+    supportsExtensionLoadingInTests: false,
+    packageFormat: "zip",
+    experimental: false
+  },
+  {
+    name: "edge",
+    displayName: "Edge",
+    manifestVersions: [3],
+    supportsManifestV3: true,
+    supportsServiceWorkerBackground: true,
+    supportsBackgroundScripts: false,
+    supportsDeclarativeNetRequest: true,
+    supportsSidePanel: true,
+    supportsAction: true,
+    supportsBrowserSpecificSettings: false,
+    supportsExtensionLoadingInTests: true,
+    packageFormat: "zip",
+    experimental: false
+  },
+  {
+    name: "safari",
+    displayName: "Safari",
+    manifestVersions: [3],
+    supportsManifestV3: true,
+    supportsServiceWorkerBackground: true,
+    supportsBackgroundScripts: false,
+    supportsDeclarativeNetRequest: false,
+    supportsSidePanel: false,
+    supportsAction: true,
+    supportsBrowserSpecificSettings: false,
+    supportsExtensionLoadingInTests: false,
+    packageFormat: "directory",
+    experimental: true
+  }
+];
+
+const defaultTargetRegistry = new TargetRegistry(builtInTargets);
+
+export function registerTarget(target: TargetCapabilities): TargetCapabilities {
+  return defaultTargetRegistry.registerTarget(target);
+}
+
+export function getTarget(name: string): TargetCapabilities {
+  return defaultTargetRegistry.getTarget(name);
+}
+
+export function listTargets(): TargetCapabilities[] {
+  return defaultTargetRegistry.listTargets();
 }
 
 const stringListSchema = z.array(z.string().min(1)).default([]);
@@ -192,10 +321,14 @@ export function getEnabledTargets(config: OpenExtConfig): BrowserTarget[] {
 export function getConfigWarnings(config: OpenExtConfig): string[] {
   const warnings: string[] = [];
 
-  if (config.targets.safari?.experimental) {
-    warnings.push(
-      "Safari support is experimental and may require macOS and Xcode-specific packaging steps."
-    );
+  for (const target of getEnabledTargets(config)) {
+    const capabilities = getTarget(target);
+
+    if (capabilities.experimental || config.targets[target]?.experimental) {
+      warnings.push(
+        `${capabilities.displayName} support is experimental and may require target-specific packaging steps.`
+      );
+    }
   }
 
   if (!hasAnyEntrypoint(config.entrypoints)) {
@@ -277,7 +410,7 @@ function normalizeTargets(
 
     normalizedTargets[target] = {
       manifest: targetConfig.manifest,
-      experimental: target === "safari" ? true : targetConfig.experimental
+      experimental: getTarget(target).experimental ? true : targetConfig.experimental
     };
   }
 

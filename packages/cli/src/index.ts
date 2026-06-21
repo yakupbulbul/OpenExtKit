@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { loadOpenExtConfig, resolveOpenExtProject, type BrowserTarget } from "@openextkit/core";
+import { getTarget, listTargets, loadOpenExtConfig, resolveOpenExtProject, type BrowserTarget } from "@openextkit/core";
 import {
   createManifestReport,
   generateAllManifests,
@@ -60,6 +60,28 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
 
   cli.command("test <target>", "Run browser extension smoke tests").action(async (target: string) => {
     await testTarget(target);
+  });
+
+  cli.command("targets [action] [target]", "List or inspect registered browser targets").action((action?: string, target?: string) => {
+    if (action === "inspect") {
+      if (!target) {
+        throw new Error("Missing target for targets inspect.");
+      }
+
+      printResult(getTarget(parseTarget(target)));
+      return;
+    }
+
+    if (action) {
+      throw new Error(`Invalid targets action "${action}". Expected "inspect".`);
+    }
+
+    printResult(listTargets().map((entry) => ({
+      name: entry.name,
+      displayName: entry.displayName,
+      experimental: entry.experimental,
+      packageFormat: entry.packageFormat
+    })));
   });
 
   cli

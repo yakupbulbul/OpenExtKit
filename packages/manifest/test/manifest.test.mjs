@@ -67,6 +67,14 @@ test("generates Firefox manifest with gecko settings", () => {
   assert.equal(validateManifest(manifest, "firefox").valid, true);
 });
 
+test("manifest generator uses target capabilities", () => {
+  const manifest = generateManifest(createProject(), "firefox");
+  const chrome = generateManifest(createProject(), "chrome");
+
+  assert.equal(Boolean(manifest.browser_specific_settings?.gecko), true);
+  assert.equal(chrome.browser_specific_settings, undefined);
+});
+
 test("generates Edge manifest like Chrome", () => {
   const manifest = generateManifest(createProject(), "edge");
 

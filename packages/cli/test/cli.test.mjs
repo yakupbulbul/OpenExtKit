@@ -153,6 +153,14 @@ test("test all writes browser smoke report", async () => {
   }
 });
 
+test("targets commands expose browser capabilities", async () => {
+  const list = await runCli(["targets"]);
+  const inspect = await runCli(["targets", "inspect", "chrome"]);
+
+  assert.match(list.stdout, /Chrome/);
+  assert.match(inspect.stdout, /supportsManifestV3/);
+});
+
 test("invalid target fails", async () => {
   const cwd = await createConfiguredProject();
 

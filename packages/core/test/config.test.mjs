@@ -7,8 +7,11 @@ import {
   defineOpenExtConfig,
   getConfigWarnings,
   getEnabledTargets,
+  getTarget,
+  listTargets,
   loadOpenExtConfig,
   OpenExtConfigError,
+  registerTarget,
   resolveOpenExtProject,
   validateOpenExtConfig
 } from "../dist/index.js";
@@ -209,4 +212,21 @@ test("resolveOpenExtProject returns project metadata", async () => {
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+});
+
+test("built-in browser targets are registered", () => {
+  assert.deepEqual(listTargets().map((target) => target.name), ["chrome", "firefox", "edge", "safari"]);
+  assert.equal(getTarget("chrome").supportsManifestV3, true);
+  assert.equal(getTarget("safari").experimental, true);
+});
+
+test("custom browser target can be registered", () => {
+  const target = registerTarget({
+    ...getTarget("chrome"),
+    name: "brave",
+    displayName: "Brave"
+  });
+
+  assert.equal(target.name, "brave");
+  assert.equal(getTarget("brave").displayName, "Brave");
 });

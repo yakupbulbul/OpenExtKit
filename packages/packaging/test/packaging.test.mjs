@@ -99,6 +99,10 @@ test("buildAllTargets writes Safari instructions and compatibility report", asyn
       compatibility.targets.some((entry) => entry.target === "safari" && entry.experimental),
       true
     );
+    assert.equal(
+      compatibility.targets.some((entry) => entry.target === "safari" && entry.packageFormat === "directory"),
+      true
+    );
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
