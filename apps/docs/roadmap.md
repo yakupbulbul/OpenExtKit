@@ -11,17 +11,18 @@
 - Browser smoke tests.
 - MCP server.
 - Templates and examples.
+- Release readiness reports.
+- Store metadata drafts.
 - CI-ready checks.
 
 ## Experimental
 
 - Safari architecture support.
 - Xcode-aware Safari packaging guidance.
-- Target registry for additional browsers.
+- Custom target packages for additional browsers.
 
 ## Later
 
 - Deeper browser automation.
-- Store publishing helpers.
 - Richer framework adapters.
 - Public package publishing workflow.

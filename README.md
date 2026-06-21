@@ -10,13 +10,26 @@ Browser extension development still requires developers to repeat the same setup
 
 ## Quick Start
 
-The CLI is not implemented yet. The planned command shape is:
+From this repository:
 
 ```sh
-pnpm dlx @openextkit/cli init my-extension --template vanilla
-cd my-extension
-pnpm openext build all
+pnpm install
+pnpm build
 ```
+
+Create a new extension project:
+
+```sh
+node packages/cli/dist/index.js init my-extension --template vanilla
+cd my-extension
+pnpm install
+pnpm exec openext build all
+pnpm exec openext test all
+pnpm exec openext package all
+pnpm exec openext release-report
+```
+
+Published package installation is not part of the V1 pre-release yet; local workspace usage is the supported path while APIs stabilize.
 
 ## Architecture Overview
 
@@ -28,6 +41,7 @@ OpenExtKit is a pnpm and Turborepo monorepo made of small packages:
 - `@openextkit/browser`: cross-browser extension API wrapper.
 - `@openextkit/testing`: browser extension test runner utilities.
 - `@openextkit/packaging`: build outputs, zip packaging, and reports.
+- `@openextkit/release`: publish readiness checks and store metadata reports.
 - `@openextkit/mcp-server`: MCP server for AI coding tools.
 - `@openextkit/templates`: starter project templates.
 - `@openextkit/eslint-config`: shared lint configuration.
@@ -44,8 +58,13 @@ OpenExtKit is a pnpm and Turborepo monorepo made of small packages:
 - Phase 6: build and packaging system.
 - Phase 7: Playwright-powered browser testing.
 - Phase 8: MCP server for AI-native workflows.
-- Phase 9: documentation site and examples.
+- Phase 9: documentation site.
+- Phase 10: cross-browser examples.
+- Phase 11: extensible browser target registry.
+- Phase 12: release readiness and store asset reports.
+- Phase 13: CI browser matrix validation.
+- Phase 14: open-source release quality pass.
 
 ## Status
 
-OpenExtKit is in early development. APIs are expected to change until the first stable release.
+OpenExtKit is in pre-release development. Chrome, Firefox, and Edge Manifest V3 workflows are the V1 focus. Safari remains experimental and reports macOS/Xcode-specific follow-up requirements instead of pretending full store packaging is complete.
