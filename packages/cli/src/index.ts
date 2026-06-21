@@ -10,6 +10,12 @@ import {
   generateManifest,
   inspectPermissions
 } from "@openextkit/manifest";
+import {
+  buildAllTargets,
+  buildTarget as buildPackagingTarget,
+  packageAllTargets,
+  packageTarget as packagePackagingTarget
+} from "@openextkit/packaging";
 import { isTemplateName, templateNames, writeTemplate } from "@openextkit/templates";
 import { cac } from "cac";
 
@@ -45,7 +51,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     });
 
   cli
-    .command("build [target]", "Generate manifest output for one target or all targets")
+    .command("build [target]", "Build extension output for one target or all targets")
     .action(async (target: string | undefined) => {
       await buildTarget(target ?? "all");
     });
@@ -95,10 +101,9 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     });
 
   cli
-    .command("package <target>", "Print packaging guidance")
-    .action((target: string) => {
-      parseTargetOrAll(target);
-      console.log("Packaging support is planned for the packaging package phase.");
+    .command("package <target>", "Create browser package archives")
+    .action(async (target: string) => {
+      await packageTarget(target);
     });
 
   cli.command("mcp", "Print MCP server guidance").action(() => {
@@ -134,33 +139,36 @@ async function initProject(name: string, template: string): Promise<void> {
 
 async function buildTarget(target: string): Promise<void> {
   const project = await resolveOpenExtProject(process.cwd());
-  const outputRoot = resolve(process.cwd(), "dist");
 
   if (target === "all") {
-    const manifests = generateAllManifests(project);
-
-    for (const [browserTarget, manifest] of Object.entries(manifests)) {
-      await writeManifest(outputRoot, browserTarget, manifest);
-    }
-
-    console.log(`Generated manifests for ${Object.keys(manifests).join(", ")}.`);
+    const result = await buildAllTargets(project);
+    console.log(`Built targets: ${result.targets.map((entry) => entry.target).join(", ")}.`);
     return;
   }
 
   const browserTarget = parseTarget(target);
-  const manifest = generateManifest(project, browserTarget);
-  await writeManifest(outputRoot, browserTarget, manifest);
-  console.log(`Generated manifest for ${browserTarget}.`);
+  const result = await buildPackagingTarget(project, browserTarget);
+  console.log(`Built ${browserTarget} at ${result.outputDir}.`);
 }
 
-async function writeManifest(
-  outputRoot: string,
-  target: string,
-  manifest: unknown
-): Promise<void> {
-  const targetDir = join(outputRoot, target);
-  await mkdir(targetDir, { recursive: true });
-  await writeFile(join(targetDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+async function packageTarget(target: string): Promise<void> {
+  const project = await resolveOpenExtProject(process.cwd());
+
+  if (target === "all") {
+    const result = await packageAllTargets(project);
+    console.log(`Packaged targets: ${result.targets.map((entry) => entry.target).join(", ")}.`);
+    return;
+  }
+
+  const browserTarget = parseTarget(target);
+  const result = await packagePackagingTarget(project, browserTarget);
+
+  if (result.packagePath) {
+    console.log(`Packaged ${browserTarget} at ${result.packagePath}.`);
+    return;
+  }
+
+  console.log(`Built ${browserTarget}; Safari package archives require Xcode-specific steps.`);
 }
 
 async function runDoctor(): Promise<Record<string, unknown>> {

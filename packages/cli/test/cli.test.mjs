@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -42,6 +42,8 @@ async function createConfiguredProject() {
       };
     `
   );
+  await mkdir(join(cwd, "src"), { recursive: true });
+  await writeFile(join(cwd, "src/background.ts"), "console.log('background');\n");
 
   return cwd;
 }
@@ -118,6 +120,19 @@ test("build writes target manifest", async () => {
     const manifest = JSON.parse(await readFile(join(cwd, "dist/chrome/manifest.json"), "utf8"));
 
     assert.equal(manifest.name, "CLI Test");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("package writes target zip", async () => {
+  const cwd = await createConfiguredProject();
+
+  try {
+    await runCli(["package", "chrome"], { cwd });
+    const zip = await readFile(join(cwd, "dist/packages/cli-test-chrome.zip"));
+
+    assert.equal(zip.subarray(0, 2).toString("utf8"), "PK");
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

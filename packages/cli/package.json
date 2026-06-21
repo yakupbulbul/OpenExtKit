@@ -15,6 +15,7 @@
   "dependencies": {
     "@openextkit/core": "workspace:^",
     "@openextkit/manifest": "workspace:^",
+    "@openextkit/packaging": "workspace:*",
     "@openextkit/templates": "workspace:*",
     "cac": "^7.0.0"
   }

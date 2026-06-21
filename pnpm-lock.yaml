@@ -40,6 +40,9 @@ importers:
       '@openextkit/manifest':
         specifier: workspace:^
         version: link:../manifest
+      '@openextkit/packaging':
+        specifier: workspace:*
+        version: link:../packaging
       '@openextkit/templates':
         specifier: workspace:*
         version: link:../templates
@@ -66,7 +69,14 @@ importers:
 
   packages/mcp-server: {}
 
-  packages/packaging: {}
+  packages/packaging:
+    dependencies:
+      '@openextkit/core':
+        specifier: workspace:*
+        version: link:../core
+      '@openextkit/manifest':
+        specifier: workspace:*
+        version: link:../manifest
 
   packages/templates:
     dependencies:
