@@ -38,7 +38,8 @@ async function createConfiguredProject() {
           host: ["https://example.com/*"]
         },
         entrypoints: {
-          background: "src/background.ts"
+          background: "src/background.ts",
+          popup: "src/popup.html"
         }
       };
     `
@@ -47,6 +48,7 @@ async function createConfiguredProject() {
   await writeFile(join(cwd, "LICENSE"), "MIT\n");
   await mkdir(join(cwd, "src"), { recursive: true });
   await writeFile(join(cwd, "src/background.ts"), "console.log('background');\n");
+  await writeFile(join(cwd, "src/popup.html"), "<main>Popup</main>\n");
 
   return cwd;
 }
@@ -151,6 +153,26 @@ test("test all writes browser smoke report", async () => {
 
     assert.match(result.stdout, /Smoke-tested targets/);
     assert.deepEqual(report.targets.map((entry) => entry.target), ["chrome", "firefox"]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("visual all reports missing browser executable clearly", async () => {
+  const cwd = await createConfiguredProject();
+
+  try {
+    await runCli(["build", "all"], { cwd });
+    const result = await runCli(["visual", "all"], {
+      cwd,
+      env: {
+        OPENEXTKIT_CHROME_EXECUTABLE: ""
+      }
+    });
+    const report = JSON.parse(await readFile(join(cwd, "dist/reports/visual-test-report.json"), "utf8"));
+
+    assert.match(result.stdout, /Visual-tested targets/);
+    assert.equal(report.targets.some((entry) => entry.target === "chrome" && entry.status === "failed"), true);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

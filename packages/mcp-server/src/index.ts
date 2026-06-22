@@ -31,7 +31,12 @@ import {
   runPublishCheck
 } from "@openextkit/release";
 import { templateNames, writeTemplate } from "@openextkit/templates";
-import { runAllBrowserSmokeTests, runBrowserSmokeTest } from "@openextkit/testing";
+import {
+  runAllBrowserSmokeTests,
+  runAllBrowserVisualTests,
+  runBrowserSmokeTest,
+  runBrowserVisualTest
+} from "@openextkit/testing";
 import { z } from "zod";
 
 export const mcpServerPackageName = "@openextkit/mcp-server";
@@ -47,6 +52,8 @@ export const mcpToolNames = [
   "package_all_targets",
   "run_browser_tests",
   "run_all_browser_tests",
+  "run_visual_tests",
+  "run_all_visual_tests",
   "create_extension_project",
   "list_templates",
   "list_browser_targets",
@@ -226,6 +233,26 @@ export function createOpenExtMcpTools(): McpToolDefinition[] {
         assertAllowedProject(project, context);
         return runAllBrowserSmokeTests(project);
       }, ["dist/reports/test-report.json"])
+    },
+    {
+      name: "run_visual_tests",
+      description: "Run visual tests for one browser target and capture screenshots for extension HTML surfaces.",
+      inputSchema: { projectPath: projectPathSchema, target: targetSchema },
+      handler: wrapTool("run_visual_tests", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        assertAllowedProject(project, context);
+        return runBrowserVisualTest(project, readTarget(input));
+      }, ["dist/reports/visual", "dist/reports/visual-test-report.json"])
+    },
+    {
+      name: "run_all_visual_tests",
+      description: "Run visual tests for all enabled browser targets and capture screenshots for extension HTML surfaces.",
+      inputSchema: { projectPath: projectPathSchema },
+      handler: wrapTool("run_all_visual_tests", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        assertAllowedProject(project, context);
+        return runAllBrowserVisualTests(project);
+      }, ["dist/reports/visual", "dist/reports/visual-test-report.json"])
     },
     {
       name: "create_extension_project",

@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { getTarget } from "@openextkit/core";
 import type { BrowserTarget, OpenExtContentScript, OpenExtProject } from "@openextkit/core";
 
@@ -37,6 +37,40 @@ export type BrowserTestReport = {
   targets: BrowserSmokeTestResult[];
 };
 
+export type VisualSurface = "popup" | "options";
+
+export type VisualTestScreenshot = {
+  surface: VisualSurface;
+  url: string;
+  path: string;
+};
+
+export type BrowserVisualTestResult = {
+  target: BrowserTarget;
+  status: TestStatus;
+  checks: TestCheck[];
+  warnings: string[];
+  errors: string[];
+  durationMs: number;
+  screenshots: VisualTestScreenshot[];
+  browser?: {
+    executablePath?: string;
+    loaded: boolean;
+    profileDir?: string;
+    extensionId?: string;
+  };
+};
+
+export type BrowserVisualTestReport = {
+  project: {
+    name: string;
+    rootDir: string;
+  };
+  generatedAt: string;
+  status: TestStatus;
+  targets: BrowserVisualTestResult[];
+};
+
 export type TestProfile = {
   target: BrowserTarget;
   profileDir: string;
@@ -47,6 +81,7 @@ export type LoadExtensionResult = {
   loaded: boolean;
   executablePath?: string;
   profileDir?: string;
+  extensionId?: string;
   warnings: string[];
   errors: string[];
 };
@@ -128,6 +163,129 @@ export async function runAllBrowserSmokeTests(project: OpenExtProject): Promise<
   return report;
 }
 
+export async function runBrowserVisualTest(
+  project: OpenExtProject,
+  target: BrowserTarget
+): Promise<BrowserVisualTestResult> {
+  const startedAt = Date.now();
+  const checks: TestCheck[] = [];
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  const screenshots: VisualTestScreenshot[] = [];
+
+  if (!project.enabledTargets.includes(target)) {
+    addError(errors, checks, "target.enabled", `Target "${target}" is not enabled in openext.config.`);
+    return finalizeVisualResult(target, startedAt, checks, warnings, errors, screenshots);
+  }
+
+  const extensionPath = join(project.rootDir, "dist", target);
+  await checkDirectory(extensionPath, checks, errors);
+  const manifest = await checkManifest(extensionPath, checks, errors);
+  if (!manifest || errors.length > 0) {
+    return finalizeVisualResult(target, startedAt, checks, warnings, errors, screenshots);
+  }
+
+  const surfaces = getVisualSurfaces(project);
+  if (surfaces.length === 0) {
+    addError(errors, checks, "visual.surfaces", "No visual HTML entrypoints found. Add a popup or options HTML entrypoint.");
+    return finalizeVisualResult(target, startedAt, checks, warnings, errors, screenshots);
+  }
+
+  const capability = getTestingCapability(target);
+  if (!capability.supported) {
+    addError(errors, checks, "browser.capability", capability.message);
+    return finalizeVisualResult(target, startedAt, checks, warnings, errors, screenshots);
+  }
+
+  const executablePath = getExecutableFromEnv(target);
+  if (!executablePath) {
+    addError(
+      errors,
+      checks,
+      "browser.executable",
+      `No ${target} executable configured. Set ${target === "edge" ? "OPENEXTKIT_EDGE_EXECUTABLE" : "OPENEXTKIT_CHROME_EXECUTABLE"} to run visual tests.`
+    );
+    return finalizeVisualResult(target, startedAt, checks, warnings, errors, screenshots);
+  }
+
+  const profile = await createTestProfile(target);
+
+  try {
+    const { chromium } = await import("playwright-core");
+    const context = await chromium.launchPersistentContext(profile.profileDir, {
+      executablePath,
+      headless: false,
+      args: [
+        `--disable-extensions-except=${resolve(extensionPath)}`,
+        `--load-extension=${resolve(extensionPath)}`
+      ]
+    });
+
+    try {
+      const extensionId = await resolveExtensionId(context);
+      checks.push({
+        name: "browser.load",
+        status: "passed",
+        message: `Loaded extension in ${target}.`,
+        durationMs: 0
+      });
+
+      for (const surface of surfaces) {
+        const page = await context.newPage();
+        const url = `chrome-extension://${extensionId}/${surface.path}`;
+        const screenshotPath = join(project.rootDir, "dist", "reports", "visual", target, `${surface.name}.png`);
+        const pageStartedAt = Date.now();
+
+        await page.goto(url, { waitUntil: "domcontentloaded" });
+        await page.setViewportSize({ width: 390, height: 640 });
+        await mkdir(dirname(screenshotPath), { recursive: true });
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        await page.close();
+
+        screenshots.push({
+          surface: surface.name,
+          url,
+          path: screenshotPath
+        });
+        checks.push({
+          name: `visual.${surface.name}.screenshot`,
+          status: "passed",
+          message: `Captured ${surface.name} screenshot at ${screenshotPath}.`,
+          durationMs: Date.now() - pageStartedAt
+        });
+      }
+
+      return finalizeVisualResult(target, startedAt, checks, warnings, errors, screenshots, {
+        executablePath,
+        loaded: true,
+        profileDir: profile.profileDir,
+        extensionId
+      });
+    } finally {
+      await context.close();
+    }
+  } catch (error) {
+    addError(errors, checks, "visual.capture", error instanceof Error ? error.message : String(error));
+    return finalizeVisualResult(target, startedAt, checks, warnings, errors, screenshots, {
+      executablePath,
+      loaded: false,
+      profileDir: profile.profileDir
+    });
+  }
+}
+
+export async function runAllBrowserVisualTests(project: OpenExtProject): Promise<BrowserVisualTestReport> {
+  const targets: BrowserVisualTestResult[] = [];
+
+  for (const target of project.enabledTargets) {
+    targets.push(await runBrowserVisualTest(project, target));
+  }
+
+  const report = createVisualReport(project, targets);
+  await writeVisualTestReport(project, report);
+  return report;
+}
+
 export async function createTestProfile(target: BrowserTarget): Promise<TestProfile> {
   const profileDir = await mkdtemp(join(tmpdir(), `openext-${target}-profile-`));
   return {
@@ -177,6 +335,7 @@ export async function loadExtensionInBrowser(
         `--load-extension=${resolve(extensionPath)}`
       ]
     });
+    const extensionId = await resolveExtensionId(context).catch(() => undefined);
     await context.close();
 
     return {
@@ -184,6 +343,7 @@ export async function loadExtensionInBrowser(
       loaded: true,
       executablePath,
       profileDir: profile.profileDir,
+      extensionId,
       warnings,
       errors
     };
@@ -198,6 +358,32 @@ export async function loadExtensionInBrowser(
       errors
     };
   }
+}
+
+async function resolveExtensionId(context: {
+  serviceWorkers(): Array<{ url(): string }>;
+  backgroundPages(): Array<{ url(): string }>;
+  waitForEvent(event: "serviceworker", options: { timeout: number }): Promise<{ url(): string }>;
+}): Promise<string> {
+  const existingWorker = context.serviceWorkers()[0];
+  const existingPage = context.backgroundPages()[0];
+  const existingId = getExtensionIdFromUrl(existingWorker?.url() ?? existingPage?.url() ?? "");
+  if (existingId) {
+    return existingId;
+  }
+
+  const worker = await context.waitForEvent("serviceworker", { timeout: 5000 });
+  const extensionId = getExtensionIdFromUrl(worker.url());
+  if (!extensionId) {
+    throw new OpenExtTestingError("Could not resolve loaded extension id.");
+  }
+
+  return extensionId;
+}
+
+function getExtensionIdFromUrl(url: string): string | undefined {
+  const match = /^chrome-extension:\/\/([^/]+)/.exec(url);
+  return match?.[1];
 }
 
 export async function createTestReport(project: OpenExtProject): Promise<BrowserTestReport> {
@@ -411,6 +597,30 @@ function finalizeResult(
   };
 }
 
+function finalizeVisualResult(
+  target: BrowserTarget,
+  startedAt: number,
+  checks: TestCheck[],
+  warnings: string[],
+  errors: string[],
+  screenshots: VisualTestScreenshot[],
+  browser?: BrowserVisualTestResult["browser"]
+): BrowserVisualTestResult {
+  const failed = checks.some((check) => check.status === "failed") || errors.length > 0;
+  const warned = checks.some((check) => check.status === "warning") || warnings.length > 0;
+
+  return {
+    target,
+    status: failed ? "failed" : warned ? "warning" : "passed",
+    checks,
+    warnings,
+    errors,
+    durationMs: Date.now() - startedAt,
+    screenshots,
+    browser
+  };
+}
+
 function createReport(project: OpenExtProject, targets: BrowserSmokeTestResult[]): BrowserTestReport {
   const failed = targets.some((target) => target.status === "failed");
   const warned = targets.some((target) => target.status === "warning");
@@ -426,8 +636,48 @@ function createReport(project: OpenExtProject, targets: BrowserSmokeTestResult[]
   };
 }
 
+function createVisualReport(project: OpenExtProject, targets: BrowserVisualTestResult[]): BrowserVisualTestReport {
+  const failed = targets.some((target) => target.status === "failed");
+  const warned = targets.some((target) => target.status === "warning");
+
+  return {
+    project: {
+      name: project.config.name,
+      rootDir: project.rootDir
+    },
+    generatedAt: new Date().toISOString(),
+    status: failed ? "failed" : warned ? "warning" : "passed",
+    targets
+  };
+}
+
+function getVisualSurfaces(project: OpenExtProject): Array<{ name: VisualSurface; path: string }> {
+  const surfaces: Array<{ name: VisualSurface; path: string }> = [];
+  const { popup, options } = project.config.entrypoints;
+
+  if (popup && isHtmlEntrypoint(popup)) {
+    surfaces.push({ name: "popup", path: popup });
+  }
+
+  if (options && isHtmlEntrypoint(options)) {
+    surfaces.push({ name: "options", path: options });
+  }
+
+  return surfaces;
+}
+
+function isHtmlEntrypoint(path: string): boolean {
+  return basename(path).toLowerCase().endsWith(".html");
+}
+
 async function writeTestReport(project: OpenExtProject, report: BrowserTestReport): Promise<void> {
   const reportPath = join(project.rootDir, "dist", "reports", "test-report.json");
+  await mkdir(dirname(reportPath), { recursive: true });
+  await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+}
+
+async function writeVisualTestReport(project: OpenExtProject, report: BrowserVisualTestReport): Promise<void> {
+  const reportPath = join(project.rootDir, "dist", "reports", "visual-test-report.json");
   await mkdir(dirname(reportPath), { recursive: true });
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
 }

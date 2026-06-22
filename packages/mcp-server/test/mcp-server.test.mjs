@@ -28,7 +28,8 @@ async function createProject() {
           host: ["https://example.com/*"]
         },
         entrypoints: {
-          background: "src/background.js"
+          background: "src/background.js",
+          popup: "src/popup.html"
         }
       };
     `
@@ -37,6 +38,7 @@ async function createProject() {
   await writeFile(join(cwd, "LICENSE"), "MIT\n");
   await mkdir(join(cwd, "src"), { recursive: true });
   await writeFile(join(cwd, "src/background.js"), "console.log('background');\n");
+  await writeFile(join(cwd, "src/popup.html"), "<main>Popup</main>\n");
   return cwd;
 }
 
@@ -149,6 +151,25 @@ test("run_all_browser_tests works", async () => {
     assert.equal(result.status, "ok");
     assert.deepEqual(result.data.targets.map((target) => target.target), ["chrome", "firefox"]);
   } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("run_all_visual_tests reports missing executable clearly", async () => {
+  const cwd = await createProject();
+  const previousExecutable = process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+  delete process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+
+  try {
+    await runOpenExtMcpTool("build_all_targets", {}, { cwd });
+    const result = await runOpenExtMcpTool("run_all_visual_tests", {}, { cwd });
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.data.targets.some((target) => target.target === "chrome" && target.status === "failed"), true);
+  } finally {
+    if (previousExecutable) {
+      process.env.OPENEXTKIT_CHROME_EXECUTABLE = previousExecutable;
+    }
     await rm(cwd, { recursive: true, force: true });
   }
 });

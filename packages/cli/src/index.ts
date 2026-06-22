@@ -18,7 +18,12 @@ import {
 } from "@openextkit/packaging";
 import { createReleaseReport, generateStoreMetadata, runPublishCheck } from "@openextkit/release";
 import { startOpenExtMcpServer } from "@openextkit/mcp-server";
-import { runAllBrowserSmokeTests, runBrowserSmokeTest } from "@openextkit/testing";
+import {
+  runAllBrowserSmokeTests,
+  runAllBrowserVisualTests,
+  runBrowserSmokeTest,
+  runBrowserVisualTest
+} from "@openextkit/testing";
 import { isTemplateName, templateNames, writeTemplate } from "@openextkit/templates";
 import { cac } from "cac";
 
@@ -61,6 +66,10 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
 
   cli.command("test <target>", "Run browser extension smoke tests").action(async (target: string) => {
     await testTarget(target);
+  });
+
+  cli.command("visual <target>", "Run visual browser extension tests and capture screenshots").action(async (target: string) => {
+    await visualTarget(target);
   });
 
   cli.command("targets [action] [target]", "List or inspect registered browser targets").action((action?: string, target?: string) => {
@@ -224,6 +233,20 @@ async function testTarget(target: string): Promise<void> {
   const browserTarget = parseTarget(target);
   const result = await runBrowserSmokeTest(project, browserTarget);
   console.log(`Smoke-tested ${browserTarget}: ${result.status}.`);
+}
+
+async function visualTarget(target: string): Promise<void> {
+  const project = await resolveOpenExtProject(process.cwd());
+
+  if (target === "all") {
+    const report = await runAllBrowserVisualTests(project);
+    console.log(`Visual-tested targets: ${report.targets.map((entry) => `${entry.target}:${entry.status}`).join(", ")}.`);
+    return;
+  }
+
+  const browserTarget = parseTarget(target);
+  const result = await runBrowserVisualTest(project, browserTarget);
+  console.log(`Visual-tested ${browserTarget}: ${result.status}.`);
 }
 
 async function runDoctor(): Promise<Record<string, unknown>> {

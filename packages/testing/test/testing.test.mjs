@@ -9,6 +9,8 @@ import {
   createTestReport,
   loadExtensionInBrowser,
   runAllBrowserSmokeTests,
+  runAllBrowserVisualTests,
+  runBrowserVisualTest,
   runBrowserSmokeTest
 } from "../dist/index.js";
 
@@ -161,6 +163,47 @@ test("test all aggregates results and writes a report", async () => {
     assert.equal(report.targets.length, 2);
     assert.deepEqual(written.targets.map((entry) => entry.target), ["chrome", "firefox"]);
   } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("visual test fails clearly when no browser executable is configured", async () => {
+  const cwd = await createProject({ targets: { chrome: {} } });
+  const previousExecutable = process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+  delete process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const result = await runBrowserVisualTest(project, "chrome");
+
+    assert.equal(result.status, "failed");
+    assert.match(result.errors.join("\n"), /OPENEXTKIT_CHROME_EXECUTABLE/);
+    assert.equal(result.screenshots.length, 0);
+  } finally {
+    if (previousExecutable) {
+      process.env.OPENEXTKIT_CHROME_EXECUTABLE = previousExecutable;
+    }
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("visual test all writes a visual report", async () => {
+  const cwd = await createProject({ targets: { chrome: {} } });
+  const previousExecutable = process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+  delete process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const report = await runAllBrowserVisualTests(project);
+    const written = JSON.parse(await readFile(join(cwd, "dist/reports/visual-test-report.json"), "utf8"));
+
+    assert.equal(report.targets.length, 1);
+    assert.equal(report.status, "failed");
+    assert.equal(written.targets[0].target, "chrome");
+  } finally {
+    if (previousExecutable) {
+      process.env.OPENEXTKIT_CHROME_EXECUTABLE = previousExecutable;
+    }
     await rm(cwd, { recursive: true, force: true });
   }
 });
