@@ -31,6 +31,34 @@ pnpm exec openext release-report
 
 Published package installation is not part of the V1 pre-release yet; local workspace usage is the supported path while APIs stabilize.
 
+## Visual Testing
+
+OpenExtKit can run visual extension checks for Chromium-based targets by loading the built extension with Playwright and capturing screenshots of configured HTML surfaces such as `popup` and `options` pages.
+
+Set a browser executable, build the extension, then run the visual test command:
+
+```sh
+export OPENEXTKIT_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+pnpm build
+node packages/cli/dist/index.js visual chrome
+```
+
+For Edge, use `OPENEXTKIT_EDGE_EXECUTABLE`. Screenshots are written to `dist/reports/visual/<target>/`, and the structured report is written to `dist/reports/visual-test-report.json`.
+
+Firefox and Safari visual loading are reported as unsupported capabilities for now; their generated outputs still participate in smoke, compatibility, and packaging checks.
+
+## MCP Workflows
+
+The MCP server lets AI coding tools such as Claude Code, Codex, and Cursor inspect, build, package, smoke test, visually test, and create release reports for an OpenExtKit project.
+
+Start the MCP server from a project workspace:
+
+```sh
+node packages/cli/dist/index.js mcp
+```
+
+Useful MCP tools include `build_all_targets`, `run_all_browser_tests`, `run_all_visual_tests`, `package_all_targets`, and `create_release_report`.
+
 ## Architecture Overview
 
 OpenExtKit is a pnpm and Turborepo monorepo made of small packages:
