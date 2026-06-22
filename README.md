@@ -84,7 +84,7 @@ OpenExtKit is a pnpm and Turborepo monorepo made of small packages:
 - Phase 4: `openext` CLI foundation.
 - Phase 5: starter templates.
 - Phase 6: build and packaging system.
-- Phase 7: Playwright-powered browser testing.
+- Phase 7: capability-aware browser smoke testing.
 - Phase 8: MCP server for AI-native workflows.
 - Phase 9: documentation site.
 - Phase 10: cross-browser examples.
@@ -92,6 +92,7 @@ OpenExtKit is a pnpm and Turborepo monorepo made of small packages:
 - Phase 12: release readiness and store asset reports.
 - Phase 13: CI browser matrix validation.
 - Phase 14: open-source release quality pass.
+- Phase 15: visual extension testing with Playwright screenshots and MCP tool access.
 
 ## Status
 
