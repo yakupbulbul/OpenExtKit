@@ -11,7 +11,8 @@ import {
   runAllBrowserSmokeTests,
   runAllBrowserVisualTests,
   runBrowserVisualTest,
-  runBrowserSmokeTest
+  runBrowserSmokeTest,
+  startBrowserDevSession
 } from "../dist/index.js";
 
 async function createProject(options = {}) {
@@ -203,6 +204,48 @@ test("visual test all writes a visual report", async () => {
   } finally {
     if (previousExecutable) {
       process.env.OPENEXTKIT_CHROME_EXECUTABLE = previousExecutable;
+    }
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("dev session once reports missing browser executable clearly", async () => {
+  const cwd = await createProject({ targets: { chrome: {} } });
+  const previousExecutable = process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+  delete process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+
+    await assert.rejects(
+      () => startBrowserDevSession(project, "chrome", join(cwd, "dist/chrome"), { once: true }),
+      /OPENEXTKIT_CHROME_EXECUTABLE/
+    );
+  } finally {
+    if (previousExecutable) {
+      process.env.OPENEXTKIT_CHROME_EXECUTABLE = previousExecutable;
+    }
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("dev session once returns a launch summary without opening a browser", async () => {
+  const cwd = await createProject({ targets: { chrome: {} } });
+  const previousExecutable = process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+  process.env.OPENEXTKIT_CHROME_EXECUTABLE = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const session = await startBrowserDevSession(project, "chrome", join(cwd, "dist/chrome"), { once: true });
+
+    assert.equal(session.summary.target, "chrome");
+    assert.equal(session.summary.watching, false);
+    assert.equal(session.summary.reloadCount, 0);
+  } finally {
+    if (previousExecutable) {
+      process.env.OPENEXTKIT_CHROME_EXECUTABLE = previousExecutable;
+    } else {
+      delete process.env.OPENEXTKIT_CHROME_EXECUTABLE;
     }
     await rm(cwd, { recursive: true, force: true });
   }

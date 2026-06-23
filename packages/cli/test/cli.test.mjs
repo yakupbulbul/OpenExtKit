@@ -130,6 +130,37 @@ test("build writes target manifest", async () => {
   }
 });
 
+test("dev once builds then reports missing browser executable", async () => {
+  const cwd = await createConfiguredProject();
+
+  try {
+    await assert.rejects(
+      () => runCli(["dev", "chrome", "--once"], {
+        cwd,
+        env: {
+          OPENEXTKIT_CHROME_EXECUTABLE: ""
+        }
+      }),
+      /OPENEXTKIT_CHROME_EXECUTABLE/
+    );
+    const manifest = JSON.parse(await readFile(join(cwd, "dist/chrome/manifest.json"), "utf8"));
+
+    assert.equal(manifest.name, "CLI Test");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("dev reports unsupported browser automation targets", async () => {
+  const cwd = await createConfiguredProject();
+
+  try {
+    await assert.rejects(() => runCli(["dev", "firefox", "--once"], { cwd }), /does not support automated extension loading/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("package writes target zip", async () => {
   const cwd = await createConfiguredProject();
 

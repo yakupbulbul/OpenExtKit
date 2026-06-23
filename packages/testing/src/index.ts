@@ -86,6 +86,23 @@ export type LoadExtensionResult = {
   errors: string[];
 };
 
+export type BrowserDevSessionSummary = {
+  target: BrowserTarget;
+  outputDir: string;
+  executablePath: string;
+  profileDir: string;
+  openedUrl: string | null;
+  extensionId?: string;
+  reloadCount: number;
+  watching: boolean;
+};
+
+export type BrowserDevSession = {
+  summary: BrowserDevSessionSummary;
+  reload: () => Promise<BrowserDevSessionSummary>;
+  close: () => Promise<void>;
+};
+
 export class OpenExtTestingError extends Error {
   readonly target?: BrowserTarget;
 
@@ -203,7 +220,7 @@ export async function runBrowserVisualTest(
       errors,
       checks,
       "browser.executable",
-      `No ${target} executable configured. Set ${target === "edge" ? "OPENEXTKIT_EDGE_EXECUTABLE" : "OPENEXTKIT_CHROME_EXECUTABLE"} to run visual tests.`
+      `No ${target} executable configured. Set ${getExecutableEnvName(target)} to run visual tests.`
     );
     return finalizeVisualResult(target, startedAt, checks, warnings, errors, screenshots);
   }
@@ -314,7 +331,7 @@ export async function loadExtensionInBrowser(
 
   const executablePath = getExecutableFromEnv(target);
   if (!executablePath) {
-    warnings.push(`No ${target} executable configured. Set ${target === "edge" ? "OPENEXTKIT_EDGE_EXECUTABLE" : "OPENEXTKIT_CHROME_EXECUTABLE"}.`);
+    warnings.push(`No ${target} executable configured. Set ${getExecutableEnvName(target)}.`);
     return {
       target,
       loaded: false,
@@ -358,6 +375,78 @@ export async function loadExtensionInBrowser(
       errors
     };
   }
+}
+
+export async function startBrowserDevSession(
+  project: OpenExtProject,
+  target: BrowserTarget,
+  extensionPath: string,
+  options: { once?: boolean } = {}
+): Promise<BrowserDevSession> {
+  const capability = getTestingCapability(target);
+  if (!capability.supported) {
+    throw new OpenExtTestingError(capability.message, target);
+  }
+
+  const executablePath = getExecutableFromEnv(target);
+  if (!executablePath) {
+    throw new OpenExtTestingError(`No ${target} executable configured. Set ${getExecutableEnvName(target)}.`, target);
+  }
+
+  const summary: BrowserDevSessionSummary = {
+    target,
+    outputDir: extensionPath,
+    executablePath,
+    profileDir: "",
+    openedUrl: null,
+    reloadCount: 0,
+    watching: !options.once
+  };
+
+  if (options.once) {
+    return {
+      summary,
+      reload: async () => summary,
+      close: async () => undefined
+    };
+  }
+
+  const profile = await createTestProfile(target);
+  const { chromium } = await import("playwright-core");
+  const context = await chromium.launchPersistentContext(profile.profileDir, {
+    executablePath,
+    headless: false,
+    args: [
+      `--disable-extensions-except=${resolve(extensionPath)}`,
+      `--load-extension=${resolve(extensionPath)}`
+    ]
+  });
+  const extensionId = await resolveExtensionId(context);
+  const surface = getVisualSurfaces(project)[0];
+  const page = await context.newPage();
+
+  summary.profileDir = profile.profileDir;
+  summary.extensionId = extensionId;
+
+  if (surface) {
+    summary.openedUrl = `chrome-extension://${extensionId}/${surface.path}`;
+    await page.goto(summary.openedUrl, { waitUntil: "domcontentloaded" });
+  }
+
+  return {
+    summary,
+    reload: async () => {
+      summary.reloadCount += 1;
+      await page.evaluate("chrome.runtime.reload()").catch(() => undefined);
+      if (summary.openedUrl) {
+        await page.goto(summary.openedUrl, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+      }
+      return summary;
+    },
+    close: async () => {
+      await context.close();
+    }
+  };
 }
 
 async function resolveExtensionId(context: {
@@ -544,15 +633,19 @@ function getTestingCapability(target: BrowserTarget): { supported: boolean; mess
 }
 
 function getExecutableFromEnv(target: BrowserTarget): string | undefined {
+  return process.env[getExecutableEnvName(target)];
+}
+
+function getExecutableEnvName(target: BrowserTarget): string {
   if (target === "edge") {
-    return process.env.OPENEXTKIT_EDGE_EXECUTABLE;
+    return "OPENEXTKIT_EDGE_EXECUTABLE";
   }
 
   if (target === "chrome") {
-    return process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+    return "OPENEXTKIT_CHROME_EXECUTABLE";
   }
 
-  return undefined;
+  return `OPENEXTKIT_${target.toUpperCase()}_EXECUTABLE`;
 }
 
 function addWarning(warnings: string[], checks: TestCheck[], name: string, message: string): void {

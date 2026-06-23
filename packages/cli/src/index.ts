@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { watch, type FSWatcher } from "node:fs";
+import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { getTarget, listTargets, loadOpenExtConfig, resolveOpenExtProject, type BrowserTarget } from "@openextkit/core";
+import { getTarget, listTargets, loadOpenExtConfig, resolveOpenExtProject, type BrowserTarget, type OpenExtProject } from "@openextkit/core";
 import {
   createManifestReport,
   generateAllManifests,
@@ -22,7 +23,8 @@ import {
   runAllBrowserSmokeTests,
   runAllBrowserVisualTests,
   runBrowserSmokeTest,
-  runBrowserVisualTest
+  runBrowserVisualTest,
+  startBrowserDevSession
 } from "@openextkit/testing";
 import { isTemplateName, templateNames, writeTemplate } from "@openextkit/templates";
 import { cac } from "cac";
@@ -38,6 +40,11 @@ type InitOptions = {
   template?: string;
 };
 
+type DevOptions = {
+  once?: boolean;
+  json?: boolean;
+};
+
 export async function runCli(argv: string[] = process.argv): Promise<void> {
   const cli = cac("openext");
 
@@ -49,13 +56,11 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     });
 
   cli
-    .command("dev <target>", "Print development server guidance for a target")
-    .action(async (target: string) => {
-      const browserTarget = parseTarget(target);
-      const project = await resolveOpenExtProject(process.cwd());
-      assertTargetEnabled(project.enabledTargets, browserTarget);
-      console.log(`Development server support for ${browserTarget} is planned.`);
-      console.log("For now, run `openext build <target>` and load the generated dist folder.");
+    .command("dev <target>", "Build, launch, watch, and reload an unpacked extension")
+    .option("--once", "Build and validate dev launch configuration without watching")
+    .option("--json", "Print JSON output")
+    .action(async (target: string, options: DevOptions) => {
+      await devTarget(target, options);
     });
 
   cli
@@ -201,6 +206,59 @@ async function buildTarget(target: string): Promise<void> {
   console.log(`Built ${browserTarget} at ${result.outputDir}.`);
 }
 
+async function devTarget(target: string, options: DevOptions): Promise<void> {
+  const project = await resolveOpenExtProject(process.cwd());
+  const browserTarget = parseTarget(target);
+  assertTargetEnabled(project.enabledTargets, browserTarget);
+
+  const capabilities = getTarget(browserTarget);
+  if (!capabilities.supportsExtensionLoadingInTests) {
+    throw new Error(`${capabilities.displayName} does not support automated extension loading in the current dev runner.`);
+  }
+
+  const build = await buildPackagingTarget(project, browserTarget);
+  const session = await startBrowserDevSession(project, browserTarget, build.outputDir, { once: options.once });
+
+  printResult(session.summary, options.json);
+  if (options.once) {
+    return;
+  }
+  console.log("Watching src, public, and openext.config files. Press Ctrl+C to stop.");
+
+  let rebuilding = false;
+  const rebuild = async (): Promise<void> => {
+    if (rebuilding) {
+      return;
+    }
+
+    rebuilding = true;
+    try {
+      await buildPackagingTarget(project, browserTarget);
+      const summary = await session.reload();
+      console.log(`Reloaded ${browserTarget} extension (${summary.reloadCount}).`);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      rebuilding = false;
+    }
+  };
+
+  const watchers = await createDevWatchers(project, rebuild);
+  const shutdown = async (): Promise<void> => {
+    for (const watcher of watchers) {
+      watcher.close();
+    }
+    await session.close();
+  };
+
+  process.once("SIGINT", () => {
+    shutdown().finally(() => process.exit(0));
+  });
+  process.once("SIGTERM", () => {
+    shutdown().finally(() => process.exit(0));
+  });
+}
+
 async function packageTarget(target: string): Promise<void> {
   const project = await resolveOpenExtProject(process.cwd());
 
@@ -219,6 +277,25 @@ async function packageTarget(target: string): Promise<void> {
   }
 
   console.log(`Built ${browserTarget}; Safari package archives require Xcode-specific steps.`);
+}
+
+async function createDevWatchers(project: OpenExtProject, onChange: () => Promise<void>): Promise<FSWatcher[]> {
+  const watchers: FSWatcher[] = [];
+  const candidates = ["src", "public", project.configPath];
+
+  for (const candidate of candidates) {
+    const path = resolve(project.rootDir, candidate);
+    const info = await stat(path).catch(() => undefined);
+    if (!info) {
+      continue;
+    }
+
+    watchers.push(watch(path, { recursive: info.isDirectory() }, () => {
+      void onChange();
+    }));
+  }
+
+  return watchers;
 }
 
 async function testTarget(target: string): Promise<void> {
