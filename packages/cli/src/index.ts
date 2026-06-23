@@ -20,6 +20,7 @@ import {
 import { createReleaseReport, generateStoreMetadata, runPublishCheck } from "@openextkit/release";
 import { startOpenExtMcpServer } from "@openextkit/mcp-server";
 import {
+  applyVisualRegression,
   runAllBrowserSmokeTests,
   runAllBrowserVisualTests,
   runBrowserSmokeTest,
@@ -43,6 +44,12 @@ type InitOptions = {
 type DevOptions = {
   once?: boolean;
   json?: boolean;
+};
+
+type VisualOptions = {
+  update?: boolean;
+  compare?: boolean;
+  threshold?: string;
 };
 
 export async function runCli(argv: string[] = process.argv): Promise<void> {
@@ -73,9 +80,14 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     await testTarget(target);
   });
 
-  cli.command("visual <target>", "Run visual browser extension tests and capture screenshots").action(async (target: string) => {
-    await visualTarget(target);
-  });
+  cli
+    .command("visual <target>", "Run visual browser extension tests and capture screenshots")
+    .option("--update", "Update visual baselines from captured screenshots")
+    .option("--compare", "Compare captured screenshots against visual baselines")
+    .option("--threshold <number>", "Allowed visual difference ratio before comparison fails")
+    .action(async (target: string, options: VisualOptions) => {
+      await visualTarget(target, options);
+    });
 
   cli.command("targets [action] [target]", "List or inspect registered browser targets").action((action?: string, target?: string) => {
     if (action === "inspect") {
@@ -312,18 +324,35 @@ async function testTarget(target: string): Promise<void> {
   console.log(`Smoke-tested ${browserTarget}: ${result.status}.`);
 }
 
-async function visualTarget(target: string): Promise<void> {
+async function visualTarget(target: string, options: VisualOptions = {}): Promise<void> {
   const project = await resolveOpenExtProject(process.cwd());
+  const visualOptions = {
+    update: options.update,
+    compare: options.compare,
+    threshold: options.threshold ? Number(options.threshold) : undefined
+  };
 
   if (target === "all") {
-    const report = await runAllBrowserVisualTests(project);
+    const report = await runAllBrowserVisualTests(project, visualOptions);
     console.log(`Visual-tested targets: ${report.targets.map((entry) => `${entry.target}:${entry.status}`).join(", ")}.`);
     return;
   }
 
   const browserTarget = parseTarget(target);
-  const result = await runBrowserVisualTest(project, browserTarget);
+  const result = await runBrowserVisualTest(project, browserTarget, visualOptions);
+  const regression = await applyVisualRegression(project, {
+    project: {
+      name: project.config.name,
+      rootDir: project.rootDir
+    },
+    generatedAt: new Date().toISOString(),
+    status: result.status,
+    targets: [result]
+  }, visualOptions);
   console.log(`Visual-tested ${browserTarget}: ${result.status}.`);
+  if (regression) {
+    console.log(`Visual regression ${regression.mode}: ${regression.status}.`);
+  }
 }
 
 async function runDoctor(): Promise<Record<string, unknown>> {

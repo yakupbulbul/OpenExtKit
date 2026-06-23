@@ -32,6 +32,7 @@ import {
 } from "@openextkit/release";
 import { templateNames, writeTemplate } from "@openextkit/templates";
 import {
+  applyVisualRegression,
   runAllBrowserSmokeTests,
   runAllBrowserVisualTests,
   runBrowserSmokeTest,
@@ -90,6 +91,11 @@ type McpToolDefinition = {
 
 const targetSchema = z.enum(browserTargets);
 const projectPathSchema = z.string().min(1).default(".");
+const visualOptionsSchema = {
+  update: z.boolean().default(false),
+  compare: z.boolean().default(false),
+  threshold: z.number().min(0).max(1).optional()
+};
 
 export function createOpenExtMcpServer(context: Partial<OpenExtMcpContext> = {}): McpServer {
   const server = new McpServer({
@@ -237,21 +243,32 @@ export function createOpenExtMcpTools(): McpToolDefinition[] {
     {
       name: "run_visual_tests",
       description: "Run visual tests for one browser target and capture screenshots for extension HTML surfaces.",
-      inputSchema: { projectPath: projectPathSchema, target: targetSchema },
+      inputSchema: { projectPath: projectPathSchema, target: targetSchema, ...visualOptionsSchema },
       handler: wrapTool("run_visual_tests", async (input, context) => {
         const project = await resolveProject(context, readProjectPath(input));
         assertAllowedProject(project, context);
-        return runBrowserVisualTest(project, readTarget(input));
+        const options = readVisualOptions(input);
+        const result = await runBrowserVisualTest(project, readTarget(input), options);
+        const regression = await applyVisualRegression(project, {
+          project: {
+            name: project.config.name,
+            rootDir: project.rootDir
+          },
+          generatedAt: new Date().toISOString(),
+          status: result.status,
+          targets: [result]
+        }, options);
+        return { ...result, regression };
       }, ["dist/reports/visual", "dist/reports/visual-test-report.json"])
     },
     {
       name: "run_all_visual_tests",
       description: "Run visual tests for all enabled browser targets and capture screenshots for extension HTML surfaces.",
-      inputSchema: { projectPath: projectPathSchema },
+      inputSchema: { projectPath: projectPathSchema, ...visualOptionsSchema },
       handler: wrapTool("run_all_visual_tests", async (input, context) => {
         const project = await resolveProject(context, readProjectPath(input));
         assertAllowedProject(project, context);
-        return runAllBrowserVisualTests(project);
+        return runAllBrowserVisualTests(project, readVisualOptions(input));
       }, ["dist/reports/visual", "dist/reports/visual-test-report.json"])
     },
     {
@@ -456,6 +473,14 @@ function readTemplate(input: Record<string, unknown>): (typeof templateNames)[nu
   }
 
   throw new Error(`Invalid template. Expected one of: ${templateNames.join(", ")}.`);
+}
+
+function readVisualOptions(input: Record<string, unknown>): { update?: boolean; compare?: boolean; threshold?: number } {
+  return {
+    update: Boolean(input.update),
+    compare: Boolean(input.compare),
+    threshold: typeof input.threshold === "number" ? input.threshold : undefined
+  };
 }
 
 function readRequiredString(input: Record<string, unknown>, key: string): string {

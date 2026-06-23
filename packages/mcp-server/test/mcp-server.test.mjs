@@ -174,6 +174,26 @@ test("run_all_visual_tests reports missing executable clearly", async () => {
   }
 });
 
+test("run_all_visual_tests accepts regression options", async () => {
+  const cwd = await createProject();
+  const previousExecutable = process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+  delete process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+
+  try {
+    await runOpenExtMcpTool("build_all_targets", {}, { cwd });
+    const result = await runOpenExtMcpTool("run_all_visual_tests", { compare: true, threshold: 0.05 }, { cwd });
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.data.regression.mode, "compare");
+    assert.equal(result.data.regression.threshold, 0.05);
+  } finally {
+    if (previousExecutable) {
+      process.env.OPENEXTKIT_CHROME_EXECUTABLE = previousExecutable;
+    }
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("audit log is written", async () => {
   const cwd = await createProject();
 

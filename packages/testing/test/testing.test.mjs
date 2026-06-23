@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { resolveOpenExtProject } from "@openextkit/core";
 import {
+  applyVisualRegression,
   createTestProfile,
   createTestReport,
   loadExtensionInBrowser,
@@ -209,6 +210,65 @@ test("visual test all writes a visual report", async () => {
   }
 });
 
+test("visual regression update writes baselines", async () => {
+  const cwd = await createProject({ targets: { chrome: {} } });
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const screenshotPath = join(cwd, "dist/reports/visual/chrome/popup.png");
+    await mkdir(join(cwd, "dist/reports/visual/chrome"), { recursive: true });
+    await writeFile(screenshotPath, Buffer.from([1, 2, 3]));
+    const report = await applyVisualRegression(project, fakeVisualReport(project, screenshotPath), { update: true });
+    const baseline = await readFile(join(cwd, "dist/reports/visual-baselines/chrome/popup.png"));
+
+    assert.equal(report.status, "passed");
+    assert.deepEqual([...baseline], [1, 2, 3]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("visual regression compare passes within threshold", async () => {
+  const cwd = await createProject({ targets: { chrome: {} } });
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const screenshotPath = join(cwd, "dist/reports/visual/chrome/popup.png");
+    const baselinePath = join(cwd, "dist/reports/visual-baselines/chrome/popup.png");
+    await mkdir(join(cwd, "dist/reports/visual/chrome"), { recursive: true });
+    await mkdir(join(cwd, "dist/reports/visual-baselines/chrome"), { recursive: true });
+    await writeFile(screenshotPath, Buffer.from([1, 2, 3]));
+    await writeFile(baselinePath, Buffer.from([1, 2, 3]));
+    const report = await applyVisualRegression(project, fakeVisualReport(project, screenshotPath), { compare: true });
+
+    assert.equal(report.status, "passed");
+    assert.equal(report.comparisons[0].differenceRatio, 0);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("visual regression compare writes diff when threshold is exceeded", async () => {
+  const cwd = await createProject({ targets: { chrome: {} } });
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const screenshotPath = join(cwd, "dist/reports/visual/chrome/popup.png");
+    const baselinePath = join(cwd, "dist/reports/visual-baselines/chrome/popup.png");
+    await mkdir(join(cwd, "dist/reports/visual/chrome"), { recursive: true });
+    await mkdir(join(cwd, "dist/reports/visual-baselines/chrome"), { recursive: true });
+    await writeFile(screenshotPath, Buffer.from([9, 9, 9]));
+    await writeFile(baselinePath, Buffer.from([1, 2, 3]));
+    const report = await applyVisualRegression(project, fakeVisualReport(project, screenshotPath), { compare: true, threshold: 0 });
+    const diff = await readFile(join(cwd, "dist/reports/visual-diff/chrome/popup.png"));
+
+    assert.equal(report.status, "failed");
+    assert.deepEqual([...diff], [9, 9, 9]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("dev session once reports missing browser executable clearly", async () => {
   const cwd = await createProject({ targets: { chrome: {} } });
   const previousExecutable = process.env.OPENEXTKIT_CHROME_EXECUTABLE;
@@ -276,3 +336,31 @@ test("createTestReport returns a structured aggregate report", async () => {
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+function fakeVisualReport(project, screenshotPath) {
+  return {
+    project: {
+      name: project.config.name,
+      rootDir: project.rootDir
+    },
+    generatedAt: new Date().toISOString(),
+    status: "passed",
+    targets: [
+      {
+        target: "chrome",
+        status: "passed",
+        checks: [],
+        warnings: [],
+        errors: [],
+        durationMs: 0,
+        screenshots: [
+          {
+            surface: "popup",
+            url: "chrome-extension://fixture/src/popup.html",
+            path: screenshotPath
+          }
+        ]
+      }
+    ]
+  };
+}

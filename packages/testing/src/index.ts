@@ -69,6 +69,36 @@ export type BrowserVisualTestReport = {
   generatedAt: string;
   status: TestStatus;
   targets: BrowserVisualTestResult[];
+  regression?: VisualRegressionReport;
+};
+
+export type VisualRegressionMode = "update" | "compare";
+
+export type VisualTestOptions = {
+  update?: boolean;
+  compare?: boolean;
+  threshold?: number;
+};
+
+export type VisualRegressionComparison = {
+  target: BrowserTarget;
+  surface: string;
+  status: TestStatus;
+  currentPath: string;
+  baselinePath: string;
+  diffPath?: string;
+  differenceRatio: number;
+  message: string;
+};
+
+export type VisualRegressionReport = {
+  mode: VisualRegressionMode;
+  threshold: number;
+  status: TestStatus;
+  comparisons: VisualRegressionComparison[];
+  files: {
+    json: string;
+  };
 };
 
 export type TestProfile = {
@@ -182,7 +212,8 @@ export async function runAllBrowserSmokeTests(project: OpenExtProject): Promise<
 
 export async function runBrowserVisualTest(
   project: OpenExtProject,
-  target: BrowserTarget
+  target: BrowserTarget,
+  _options: VisualTestOptions = {}
 ): Promise<BrowserVisualTestResult> {
   const startedAt = Date.now();
   const checks: TestCheck[] = [];
@@ -291,16 +322,106 @@ export async function runBrowserVisualTest(
   }
 }
 
-export async function runAllBrowserVisualTests(project: OpenExtProject): Promise<BrowserVisualTestReport> {
+export async function runAllBrowserVisualTests(
+  project: OpenExtProject,
+  options: VisualTestOptions = {}
+): Promise<BrowserVisualTestReport> {
   const targets: BrowserVisualTestResult[] = [];
 
   for (const target of project.enabledTargets) {
-    targets.push(await runBrowserVisualTest(project, target));
+    targets.push(await runBrowserVisualTest(project, target, options));
   }
 
   const report = createVisualReport(project, targets);
+  report.regression = await applyVisualRegression(project, report, options);
   await writeVisualTestReport(project, report);
   return report;
+}
+
+export async function applyVisualRegression(
+  project: OpenExtProject,
+  report: BrowserVisualTestReport,
+  options: VisualTestOptions = {}
+): Promise<VisualRegressionReport | undefined> {
+  const mode = options.update ? "update" : options.compare ? "compare" : undefined;
+  if (!mode) {
+    return undefined;
+  }
+
+  const threshold = options.threshold ?? 0.01;
+  const comparisons: VisualRegressionComparison[] = [];
+
+  for (const target of report.targets) {
+    for (const screenshot of target.screenshots) {
+      const baselinePath = join(project.rootDir, "dist", "reports", "visual-baselines", target.target, `${screenshot.surface}.png`);
+      const diffPath = join(project.rootDir, "dist", "reports", "visual-diff", target.target, `${screenshot.surface}.png`);
+
+      if (mode === "update") {
+        const current = await readFile(screenshot.path);
+        await mkdir(dirname(baselinePath), { recursive: true });
+        await writeFile(baselinePath, current);
+        comparisons.push({
+          target: target.target,
+          surface: screenshot.surface,
+          status: "passed",
+          currentPath: screenshot.path,
+          baselinePath,
+          differenceRatio: 0,
+          message: `Updated baseline for ${target.target} ${screenshot.surface}.`
+        });
+        continue;
+      }
+
+      const baseline = await readFile(baselinePath).catch(() => undefined);
+      if (!baseline) {
+        comparisons.push({
+          target: target.target,
+          surface: screenshot.surface,
+          status: "failed",
+          currentPath: screenshot.path,
+          baselinePath,
+          diffPath,
+          differenceRatio: 1,
+          message: `Missing visual baseline for ${target.target} ${screenshot.surface}. Run visual --update first.`
+        });
+        continue;
+      }
+
+      const current = await readFile(screenshot.path);
+      const differenceRatio = compareBuffers(current, baseline);
+      const status = differenceRatio <= threshold ? "passed" : "failed";
+      if (status === "failed") {
+        await mkdir(dirname(diffPath), { recursive: true });
+        await writeFile(diffPath, current);
+      }
+
+      comparisons.push({
+        target: target.target,
+        surface: screenshot.surface,
+        status,
+        currentPath: screenshot.path,
+        baselinePath,
+        diffPath: status === "failed" ? diffPath : undefined,
+        differenceRatio,
+        message:
+          status === "passed"
+            ? `Visual comparison passed for ${target.target} ${screenshot.surface}.`
+            : `Visual comparison exceeded threshold for ${target.target} ${screenshot.surface}.`
+      });
+    }
+  }
+
+  const regression: VisualRegressionReport = {
+    mode,
+    threshold,
+    status: summarizeTestStatus(comparisons),
+    comparisons,
+    files: {
+      json: join(project.rootDir, "dist", "reports", "visual-regression-report.json")
+    }
+  };
+  await writeJson(regression.files.json, regression);
+  return regression;
 }
 
 export async function createTestProfile(target: BrowserTarget): Promise<TestProfile> {
@@ -744,6 +865,36 @@ function createVisualReport(project: OpenExtProject, targets: BrowserVisualTestR
   };
 }
 
+function compareBuffers(current: Buffer, baseline: Buffer): number {
+  const length = Math.max(current.length, baseline.length);
+  if (length === 0) {
+    return 0;
+  }
+
+  let differences = Math.abs(current.length - baseline.length);
+  const sharedLength = Math.min(current.length, baseline.length);
+
+  for (let index = 0; index < sharedLength; index += 1) {
+    if (current[index] !== baseline[index]) {
+      differences += 1;
+    }
+  }
+
+  return differences / length;
+}
+
+function summarizeTestStatus(entries: Array<{ status: TestStatus }>): TestStatus {
+  if (entries.some((entry) => entry.status === "failed")) {
+    return "failed";
+  }
+
+  if (entries.some((entry) => entry.status === "warning")) {
+    return "warning";
+  }
+
+  return "passed";
+}
+
 function getVisualSurfaces(project: OpenExtProject): Array<{ name: VisualSurface; path: string }> {
   const surfaces: Array<{ name: VisualSurface; path: string }> = [];
   const { popup, options } = project.config.entrypoints;
@@ -765,12 +916,15 @@ function isHtmlEntrypoint(path: string): boolean {
 
 async function writeTestReport(project: OpenExtProject, report: BrowserTestReport): Promise<void> {
   const reportPath = join(project.rootDir, "dist", "reports", "test-report.json");
-  await mkdir(dirname(reportPath), { recursive: true });
-  await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  await writeJson(reportPath, report);
 }
 
 async function writeVisualTestReport(project: OpenExtProject, report: BrowserVisualTestReport): Promise<void> {
   const reportPath = join(project.rootDir, "dist", "reports", "visual-test-report.json");
-  await mkdir(dirname(reportPath), { recursive: true });
-  await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  await writeJson(reportPath, report);
+}
+
+async function writeJson(path: string, value: unknown): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }
