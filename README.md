@@ -1,23 +1,56 @@
 # OpenExtKit
 
-OpenExtKit is an AI-native, cross-browser extension development toolkit for building, testing, validating, packaging, and sharing browser extensions from one TypeScript codebase.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/yakupbulbul/OpenExtKit/actions/workflows/ci.yml/badge.svg)](https://github.com/yakupbulbul/OpenExtKit/actions/workflows/ci.yml)
+[![Node >=20.11](https://img.shields.io/badge/node-%3E%3D20.11-brightgreen.svg)](package.json)
+[![pnpm](https://img.shields.io/badge/pnpm-9.15.4-orange.svg)](package.json)
+[![Manifest V3](https://img.shields.io/badge/Manifest-V3-4285F4.svg)](docs/browser-support.md)
+[![MCP friendly](https://img.shields.io/badge/MCP-friendly-6f42c1.svg)](docs/mcp-tools.md)
 
-The project is designed for Chrome, Firefox, Edge, and Opera Manifest V3 extensions first, with Safari represented in the architecture as an experimental target that can report macOS and Xcode-specific requirements clearly.
+AI-native, cross-browser extension development toolkit for building, testing, validating, packaging, and preparing browser extensions from one TypeScript codebase.
 
-## Why It Exists
+**Translations:** [English](README.md) | [Turkish](docs/readme/README.tr.md) | [German](docs/readme/README.de.md)
 
-Browser extension development still requires developers to repeat the same setup work across manifests, browser quirks, permissions, packaging, testing, and release validation. OpenExtKit aims to make those workflows explicit, testable, and friendly to both humans and AI coding tools.
+## Project Status
+
+OpenExtKit is in pre-release development. Local workspace usage is the supported path while the CLI, package boundaries, and public APIs stabilize. The repository is intentionally open-source friendly: issues, discussions, docs improvements, template ideas, browser compatibility fixes, and tests are welcome.
+
+Chrome, Edge, and Opera are treated as Chromium-compatible Manifest V3 targets. Firefox Manifest V3 support is part of the core workflow with target-specific compatibility reporting. Safari is experimental and reports macOS/Xcode-specific requirements instead of pretending full store packaging is complete.
+
+## Why OpenExtKit?
+
+Browser extension teams repeat the same work across manifests, permissions, browser quirks, packaging, visual checks, release readiness, and store metadata. OpenExtKit makes those workflows explicit, testable, and usable by both humans and AI coding tools such as Codex, Claude Code, Cursor, and Windsurf.
+
+## Highlights
+
+- Cross-browser Manifest V3 generation for Chrome, Edge, Opera, Firefox, and experimental Safari.
+- TypeScript-first CLI for init, build, dev, test, visual checks, packaging, diagnostics, release reports, and store asset preparation.
+- Real browser workflows for Chromium-family targets, including interactive dev mode, visual screenshots, visual regression baselines, recording mode, and JSON E2E recipes.
+- Store readiness scoring, permission risk advice, publish wizard reports, and local upload-ready submission assets.
+- MCP server for AI-agent workflows with diagnostics, testing, review, visual review, templates, packaging, and release tools.
+- Template marketplace with starter projects and a local preview gallery.
+- Contributor-focused monorepo with focused packages for core config, manifests, browser APIs, testing, packaging, release, templates, CLI, and MCP.
+
+## Supported Browsers
+
+| Target | Status | Notes |
+| --- | --- | --- |
+| Chrome | First-class | Chromium MV3, dev mode, visual tests, E2E, packaging, release checks. |
+| Edge | First-class | Chromium-compatible with Edge executable and store readiness paths. |
+| Opera | First-class | Chromium-compatible with Opera executable and package naming support. |
+| Firefox | Supported | MV3 generation, compatibility diagnostics, packaging, and release checks with browser-specific caveats. |
+| Safari | Experimental | Capability reporting for Safari/macOS/Xcode requirements; full store packaging is not claimed yet. |
 
 ## Quick Start
 
-From this repository:
+Clone the repository and build the workspace:
 
 ```sh
 pnpm install
 pnpm build
 ```
 
-Create a new extension project:
+Create a new extension project from the local CLI:
 
 ```sh
 node packages/cli/dist/index.js init my-extension --template vanilla
@@ -26,124 +59,112 @@ pnpm install
 pnpm exec openext build all
 pnpm exec openext doctor --target chrome
 pnpm exec openext test all
-pnpm exec openext e2e chrome
-pnpm exec openext e2e chrome --recipe-file openext.e2e.json
 pnpm exec openext package all
-pnpm exec openext review all
-pnpm exec openext submit-assets all
-pnpm exec openext release-report
 ```
 
-Published package installation is not part of the V1 pre-release yet; local workspace usage is the supported path while APIs stabilize.
+Published package installation is not part of this pre-release README yet. Use the local workspace commands above until the package is published and the APIs are marked stable.
 
-## Visual Testing
-
-OpenExtKit can run visual extension checks for Chromium-based targets by loading the built extension with Playwright and capturing screenshots of configured HTML surfaces such as `popup`, `options`, and supported content script test pages.
-
-Set a browser executable, build the extension, then run the visual test command:
+## Common Workflows
 
 ```sh
-export OPENEXTKIT_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-pnpm build
-node packages/cli/dist/index.js visual chrome
-```
+# Daily Chromium extension development
+OPENEXTKIT_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" openext dev chrome
 
-For Edge, use `OPENEXTKIT_EDGE_EXECUTABLE`. For Opera, use `OPENEXTKIT_OPERA_EXECUTABLE`. Screenshots are written to `dist/reports/visual/<target>/`, and the structured report is written to `dist/reports/visual-test-report.json`.
+# Local dashboard with token-protected build/test/package/doctor actions
+openext dashboard
 
-Visual regression baselines are available with:
+# Target diagnostics and compatibility guidance
+openext doctor --target chrome
+openext inspect permissions chrome --advisor
+openext compat fix firefox --dry-run
 
-```sh
+# Visual checks, baselines, and recording
+openext visual chrome
 openext visual chrome --update
 openext visual chrome --compare
 openext visual chrome --record
+
+# E2E checks
+openext e2e chrome
+openext e2e chrome --recipe-file openext.e2e.json
+
+# Release readiness and local submission assets
+openext review all
+openext publish-wizard all
+openext submit-assets all
+openext release-report
 ```
 
-Firefox and Safari visual loading are reported as unsupported capabilities for now; their generated outputs still participate in smoke, compatibility, and packaging checks.
+Browser automation commands require executable paths when the browser is not discoverable automatically:
 
-## MCP Workflows
+- `OPENEXTKIT_CHROME_EXECUTABLE`
+- `OPENEXTKIT_EDGE_EXECUTABLE`
+- `OPENEXTKIT_OPERA_EXECUTABLE`
 
-The MCP server lets AI coding tools such as Claude Code, Codex, and Cursor inspect, build, package, smoke test, visually test, and create release reports for an OpenExtKit project.
+## Templates
 
-Start the MCP server from a project workspace:
+Start with a minimal template or a richer product-oriented starter:
 
 ```sh
-node packages/cli/dist/index.js mcp
+openext init my-extension --template react-popup
+openext templates --json
+openext templates gallery
 ```
 
-Useful MCP tools include `build_all_targets`, `run_diagnostics`, `run_all_browser_tests`, `run_e2e_tests`, `run_all_visual_tests`, `visual_review`, `package_all_targets`, `review_extension`, and `create_release_report`.
+Included templates cover vanilla extensions, React popups, content scripts, focus blockers, new tabs, AI sidebars, command palettes, tab managers, context menu tools, web clippers, bookmark managers, shopping assistants, passwordless auth helpers, developer inspectors, and more. See [docs/templates.md](docs/templates.md).
 
-## Developer Workflows
+## MCP and AI Coding Tools
 
-- `openext dev chrome` builds the target, launches a persistent browser profile with the unpacked extension, opens the first popup/options surface when available, watches files, rebuilds, and reloads the extension.
-- `openext dashboard` serves a local project dashboard with token-protected build, test, package, and doctor actions.
-- `openext review all --json` writes a deterministic agent-friendly review report.
-- `openext upgrade --json` plans safe config migrations; `openext upgrade --write` applies them after creating a backup.
-- `openext doctor --target chrome` reports target-specific configuration, manifest, permissions, package, report, store metadata, visual screenshot, and browser executable status.
-- `openext publish-check`, `openext publish-wizard all`, `openext submit-assets all`, and `openext release-report` include store readiness and local submission assets.
-- `openext compat fix firefox --dry-run` suggests compatibility patches without editing files.
-- Rich templates are available with `openext init my-extension --template ai-sidebar`, `command-palette`, `tab-manager`, `local-productivity-blocker`, `new-tab-dashboard`, and `context-menu-tool`.
-- `openext templates gallery` serves a local preview gallery for all templates.
+OpenExtKit includes an MCP server so AI coding tools can inspect and operate on extension projects through scoped local tools:
 
-More details are in `docs/development.md`, `docs/testing.md`, `docs/templates.md`, `docs/browser-support.md`, `docs/publishing.md`, and `docs/mcp-tools.md`.
+```sh
+openext mcp
+```
 
-## Architecture Overview
+Useful MCP tools include diagnostics, browser tests, visual regression, E2E recipes, template listing, deterministic extension review, visual review, packaging, and release reports. See [docs/mcp-tools.md](docs/mcp-tools.md), [apps/docs/using-with-codex.md](apps/docs/using-with-codex.md), [apps/docs/using-with-claude-code.md](apps/docs/using-with-claude-code.md), [apps/docs/using-with-cursor.md](apps/docs/using-with-cursor.md), and [apps/docs/using-with-windsurf.md](apps/docs/using-with-windsurf.md).
 
-OpenExtKit is a pnpm and Turborepo monorepo made of small packages:
+## Repository Layout
 
-- `@openextkit/cli`: command-line interface and project generator.
-- `@openextkit/core`: configuration schema, project resolution, and shared types.
-- `@openextkit/manifest`: browser-specific Manifest V3 generation.
-- `@openextkit/browser`: cross-browser extension API wrapper.
-- `@openextkit/testing`: browser extension test runner utilities.
-- `@openextkit/packaging`: build outputs, zip packaging, and reports.
-- `@openextkit/release`: publish readiness checks and store metadata reports.
-- `@openextkit/mcp-server`: MCP server for AI coding tools.
-- `@openextkit/templates`: starter project templates.
-- `@openextkit/eslint-config`: shared lint configuration.
-- `@openextkit/tsconfig`: shared TypeScript configuration.
+OpenExtKit is a pnpm and Turborepo monorepo:
 
-## Roadmap
+- `packages/core`: configuration schema, target registry, project resolution, and shared types.
+- `packages/manifest`: target-specific Manifest V3 generation and permission analysis.
+- `packages/browser`: cross-browser extension API wrapper.
+- `packages/testing`: smoke, visual, regression, recorder, and E2E utilities.
+- `packages/packaging`: build outputs, zip packaging, and artifact reports.
+- `packages/release`: publish readiness, store metadata, submission assets, and review data.
+- `packages/templates`: starter templates and preview metadata.
+- `packages/cli`: `openext` command-line interface.
+- `packages/mcp-server`: MCP tools for AI coding agents.
+- `docs` and `apps/docs`: project documentation.
+- `examples`: runnable extension examples.
 
-- Phase 0: repository foundation, CI, docs, and monorepo setup.
-- Phase 1: core configuration system with Zod validation.
-- Phase 2: browser-specific manifest generation and permission reports.
-- Phase 3: cross-browser extension API wrapper.
-- Phase 4: `openext` CLI foundation.
-- Phase 5: starter templates.
-- Phase 6: build and packaging system.
-- Phase 7: capability-aware browser smoke testing.
-- Phase 8: MCP server for AI-native workflows.
-- Phase 9: documentation site.
-- Phase 10: cross-browser examples.
-- Phase 11: extensible browser target registry.
-- Phase 12: release readiness and store asset reports.
-- Phase 13: CI browser matrix validation.
-- Phase 14: open-source release quality pass.
-- Phase 15: visual extension testing with Playwright screenshots and MCP tool access.
-- Phase 16: interactive `openext dev <target>` browser install and reload mode.
-- Phase 17: visual regression baselines, comparison reports, and diff artifacts.
-- Phase 18: Opera as a first-class Chromium-compatible target.
-- Phase 19: targeted diagnostics with `openext doctor --target <target>` and MCP diagnostics.
-- Phase 20: store readiness scoring in publish and release reports.
-- Phase 21: richer AI sidebar, command palette, tab manager, productivity blocker, new tab dashboard, and context menu templates.
-- Phase 22: content script visual testing on deterministic test pages.
-- Phase 23: documentation for expanded extension workflows.
-- Phase 24: read-only local project dashboard.
-- Phase 25: deterministic review reports with CLI and MCP access.
-- Phase 26: expanded store metadata drafts.
-- Phase 27: permission risk advisor.
-- Phase 28: visual recording mode.
-- Phase 29: template marketplace metadata and additional templates.
-- Phase 30: non-interactive publish wizard report.
-- Phase 31: compatibility fix suggestions.
-- Phase 32: built-in E2E recipes.
-- Phase 33: MCP visual review tool.
-- Phase 35: token-protected dashboard action queue.
-- Phase 36: JSON E2E recipe files.
-- Phase 37: local store submission asset helpers.
-- Phase 38: config upgrade planner.
-- Phase 39: template preview gallery.
+## Documentation
 
-## Status
+- [Getting started](apps/docs/quick-start.md)
+- [Development workflows](docs/development.md)
+- [Testing extensions](docs/testing.md)
+- [Browser support](docs/browser-support.md)
+- [Publishing and store readiness](docs/publishing.md)
+- [Templates](docs/templates.md)
+- [MCP tools](docs/mcp-tools.md)
+- [Security model](docs/security.md)
+- [Architecture](docs/architecture.md)
+- [Roadmap](apps/docs/roadmap.md)
 
-OpenExtKit is in pre-release development. Chrome, Firefox, and Edge Manifest V3 workflows are the V1 focus. Safari remains experimental and reports macOS/Xcode-specific follow-up requirements instead of pretending full store packaging is complete.
+## Contributing
+
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), then run the standard checks before opening a pull request:
+
+```sh
+pnpm typecheck
+pnpm lint
+pnpm build
+pnpm test
+```
+
+Please follow the [Code of Conduct](CODE_OF_CONDUCT.md), report vulnerabilities through [SECURITY.md](SECURITY.md), and keep changes focused so they are easy to review.
+
+## License
+
+OpenExtKit is released under the [MIT License](LICENSE).
