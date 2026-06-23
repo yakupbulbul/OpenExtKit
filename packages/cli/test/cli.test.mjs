@@ -77,6 +77,22 @@ test("init creates a vanilla project", async () => {
   }
 });
 
+test("init creates a rich template project", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "openext-init-rich-"));
+
+  try {
+    const result = await runCli(["init", "sidebar-extension", "--template", "ai-sidebar"], { cwd });
+    const content = await readFile(join(cwd, "sidebar-extension/src/content.ts"), "utf8");
+    const config = await readFile(join(cwd, "sidebar-extension/openext.config.ts"), "utf8");
+
+    assert.match(result.stdout, /Created sidebar-extension/);
+    assert.match(content, /AI Sidebar/);
+    assert.match(config, /activeTab/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("doctor runs with JSON output", async () => {
   const cwd = await createConfiguredProject();
 

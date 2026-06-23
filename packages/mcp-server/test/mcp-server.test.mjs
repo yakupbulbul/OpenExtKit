@@ -212,10 +212,11 @@ test("audit log is written", async () => {
   const cwd = await createProject();
 
   try {
-    await runOpenExtMcpTool("list_templates", {}, { cwd });
+    const result = await runOpenExtMcpTool("list_templates", {}, { cwd });
     const audit = await readFile(join(cwd, ".openextkit/audit.log"), "utf8");
     const entry = JSON.parse(audit.trim().split("\n").at(-1));
 
+    assert.equal(result.data.templates.includes("context-menu-tool"), true);
     assert.equal(entry.tool, "list_templates");
     assert.equal(entry.status, "ok");
     assert.ok(entry.timestamp);
