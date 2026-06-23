@@ -37,7 +37,7 @@ export type BrowserTestReport = {
   targets: BrowserSmokeTestResult[];
 };
 
-export type VisualSurface = "popup" | "options";
+export type VisualSurface = "popup" | "options" | `content-script-${number}`;
 
 export type VisualTestScreenshot = {
   surface: VisualSurface;
@@ -234,8 +234,9 @@ export async function runBrowserVisualTest(
   }
 
   const surfaces = getVisualSurfaces(project);
-  if (surfaces.length === 0) {
-    addError(errors, checks, "visual.surfaces", "No visual HTML entrypoints found. Add a popup or options HTML entrypoint.");
+  const contentScriptSurfaces = getContentScriptVisualSurfaces(project, checks, warnings);
+  if (surfaces.length === 0 && contentScriptSurfaces.length === 0) {
+    addError(errors, checks, "visual.surfaces", "No visual HTML entrypoints or supported content script matches found.");
     return finalizeVisualResult(target, startedAt, checks, warnings, errors, screenshots);
   }
 
@@ -293,6 +294,41 @@ export async function runBrowserVisualTest(
         screenshots.push({
           surface: surface.name,
           url,
+          path: screenshotPath
+        });
+        checks.push({
+          name: `visual.${surface.name}.screenshot`,
+          status: "passed",
+          message: `Captured ${surface.name} screenshot at ${screenshotPath}.`,
+          durationMs: Date.now() - pageStartedAt
+        });
+      }
+
+      if (contentScriptSurfaces.length > 0) {
+        await context.route("**/openextkit-content-script-test", async (route) => {
+          await route.fulfill({
+            status: 200,
+            contentType: "text/html",
+            body: contentScriptFixturePage()
+          });
+        });
+      }
+
+      for (const surface of contentScriptSurfaces) {
+        const page = await context.newPage();
+        const screenshotPath = join(project.rootDir, "dist", "reports", "visual", target, `${surface.name}.png`);
+        const pageStartedAt = Date.now();
+
+        await page.goto(surface.url, { waitUntil: "domcontentloaded" });
+        await page.waitForTimeout(250);
+        await page.setViewportSize({ width: 1024, height: 768 });
+        await mkdir(dirname(screenshotPath), { recursive: true });
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        await page.close();
+
+        screenshots.push({
+          surface: surface.name,
+          url: surface.url,
           path: screenshotPath
         });
         checks.push({
@@ -896,7 +932,7 @@ function summarizeTestStatus(entries: Array<{ status: TestStatus }>): TestStatus
 }
 
 function getVisualSurfaces(project: OpenExtProject): Array<{ name: VisualSurface; path: string }> {
-  const surfaces: Array<{ name: VisualSurface; path: string }> = [];
+  const surfaces: Array<{ name: "popup" | "options"; path: string }> = [];
   const { popup, options } = project.config.entrypoints;
 
   if (popup && isHtmlEntrypoint(popup)) {
@@ -908,6 +944,71 @@ function getVisualSurfaces(project: OpenExtProject): Array<{ name: VisualSurface
   }
 
   return surfaces;
+}
+
+function getContentScriptVisualSurfaces(
+  project: OpenExtProject,
+  checks: TestCheck[],
+  warnings: string[]
+): Array<{ name: `content-script-${number}`; url: string }> {
+  const surfaces: Array<{ name: `content-script-${number}`; url: string }> = [];
+
+  for (const [index, contentScript] of project.config.entrypoints.contentScripts.entries()) {
+    const url = resolveContentScriptTestUrl(contentScript);
+    if (!url) {
+      addWarning(
+        warnings,
+        checks,
+        `visual.content-script-${index}.match`,
+        `Content script ${index} has no supported deterministic match pattern for visual testing.`
+      );
+      continue;
+    }
+
+    surfaces.push({
+      name: `content-script-${index}`,
+      url
+    });
+  }
+
+  return surfaces;
+}
+
+function resolveContentScriptTestUrl(contentScript: OpenExtContentScript): string | undefined {
+  for (const match of contentScript.matches) {
+    if (match === "<all_urls>" || match === "*://*/*" || match === "https://*/*" || match === "https://example.com/*") {
+      return "https://example.com/openextkit-content-script-test";
+    }
+
+    if (match === "http://*/*" || match === "http://example.com/*") {
+      return "http://example.com/openextkit-content-script-test";
+    }
+
+    const parsed = /^(https?):\/\/([^/*]+)\/\*$/.exec(match);
+    if (parsed) {
+      return `${parsed[1]}://${parsed[2]}/openextkit-content-script-test`;
+    }
+  }
+
+  return undefined;
+}
+
+function contentScriptFixturePage(): string {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>OpenExtKit Content Script Fixture</title>
+  </head>
+  <body>
+    <main id="openextkit-content-script-fixture">
+      <h1>OpenExtKit Content Script Fixture</h1>
+      <p>This deterministic page is used for content script visual testing.</p>
+      <button type="button">Fixture action</button>
+    </main>
+  </body>
+</html>
+`;
 }
 
 function isHtmlEntrypoint(path: string): boolean {

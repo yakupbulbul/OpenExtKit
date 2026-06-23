@@ -22,6 +22,14 @@ async function createProject(options = {}) {
     chrome: {},
     firefox: {}
   };
+  const contentScripts = options.contentScripts ?? [
+    {
+      matches: ["https://example.com/*"],
+      js: ["src/content.js"],
+      css: ["src/content.css"]
+    }
+  ];
+  const popupEntrypoint = options.popup === false ? "" : `popup: "src/popup.html",`;
 
   await writeFile(
     join(cwd, "openext.config.mjs"),
@@ -32,14 +40,8 @@ async function createProject(options = {}) {
         targets: ${JSON.stringify(targets)},
         entrypoints: {
           background: "src/background.js",
-          popup: "src/popup.html",
-          contentScripts: [
-            {
-              matches: ["https://example.com/*"],
-              js: ["src/content.js"],
-              css: ["src/content.css"]
-            }
-          ]
+          ${popupEntrypoint}
+          contentScripts: ${JSON.stringify(contentScripts)}
         }
       };
     `
@@ -189,6 +191,63 @@ test("visual test fails clearly when no browser executable is configured", async
   }
 });
 
+test("visual test accepts configured content scripts as visual surfaces", async () => {
+  const cwd = await createProject({ targets: { chrome: {} }, popup: false });
+  const previousExecutable = process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+  delete process.env.OPENEXTKIT_CHROME_EXECUTABLE;
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const result = await runBrowserVisualTest(project, "chrome");
+
+    assert.equal(result.checks.some((check) => check.name === "visual.surfaces"), false);
+    assert.match(result.errors.join("\n"), /OPENEXTKIT_CHROME_EXECUTABLE/);
+  } finally {
+    if (previousExecutable) {
+      process.env.OPENEXTKIT_CHROME_EXECUTABLE = previousExecutable;
+    }
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("visual test reports no surfaces when no visual entrypoints or content scripts exist", async () => {
+  const cwd = await createProject({ targets: { chrome: {} }, popup: false, contentScripts: [] });
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const result = await runBrowserVisualTest(project, "chrome");
+
+    assert.equal(result.status, "failed");
+    assert.match(result.errors.join("\n"), /No visual HTML entrypoints/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("visual test warns when content script matches cannot use deterministic page", async () => {
+  const cwd = await createProject({
+    targets: { chrome: {} },
+    popup: false,
+    contentScripts: [
+      {
+        matches: ["file://*/*"],
+        js: ["src/content.js"],
+        css: []
+      }
+    ]
+  });
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const result = await runBrowserVisualTest(project, "chrome");
+
+    assert.equal(result.checks.some((check) => check.name === "visual.content-script-0.match" && check.status === "warning"), true);
+    assert.match(result.errors.join("\n"), /No visual HTML entrypoints/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("visual test all writes a visual report", async () => {
   const cwd = await createProject({ targets: { chrome: {} } });
   const previousExecutable = process.env.OPENEXTKIT_CHROME_EXECUTABLE;
@@ -202,6 +261,7 @@ test("visual test all writes a visual report", async () => {
     assert.equal(report.targets.length, 1);
     assert.equal(report.status, "failed");
     assert.equal(written.targets[0].target, "chrome");
+    assert.equal(Array.isArray(written.targets[0].screenshots), true);
   } finally {
     if (previousExecutable) {
       process.env.OPENEXTKIT_CHROME_EXECUTABLE = previousExecutable;
