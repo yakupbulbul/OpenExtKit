@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { resolveOpenExtProject } from "@openextkit/core";
-import { createExtensionReview, createPublishWizardReport, createReleaseReport, generateStoreMetadata, runPublishCheck } from "../dist/index.js";
+import { createExtensionReview, createPublishWizardReport, createReleaseReport, generateStoreMetadata, generateSubmitAssets, runPublishCheck } from "../dist/index.js";
 
 async function createProject() {
   const cwd = await mkdtemp(join(tmpdir(), "openext-release-"));
@@ -18,6 +18,18 @@ async function createProject() {
         version: "0.1.0",
         description: "Release fixture description.",
         targets: { chrome: {}, firefox: {}, edge: {} },
+        submission: {
+          chrome: {
+            listingId: "chrome-listing",
+            privacyPolicyUrl: "https://example.com/privacy"
+          },
+          firefox: {
+            addonId: "firefox-addon"
+          },
+          edge: {
+            productId: "edge-product"
+          }
+        },
         permissions: {
           required: ["storage"],
           host: ["<all_urls>"]
@@ -78,9 +90,33 @@ test("createReleaseReport writes markdown and json reports", async () => {
 
     assert.match(markdown, /Release Report/);
     assert.match(markdown, /Store Readiness/);
+    assert.match(markdown, /Submit Assets/);
     assert.equal(json.project.name, "Release Fixture");
+    assert.equal(json.submitAssets.targets.some((target) => target.target === "chrome"), true);
     assert.equal(typeof json.publishCheck.readiness.percentage, "number");
     assert.equal(report.files.markdown.endsWith("release-report.md"), true);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("generateSubmitAssets writes upload-ready local folders", async () => {
+  const cwd = await createProject();
+
+  try {
+    await mkdir(join(cwd, "dist/packages"), { recursive: true });
+    await writeFile(join(cwd, "dist/packages/release-fixture-chrome.zip"), "zip\n");
+    const project = await resolveOpenExtProject(cwd);
+    const result = await generateSubmitAssets(project, "chrome");
+    const checklist = await readFile(join(cwd, "dist/submit/chrome/submission-checklist.md"), "utf8");
+    const config = JSON.parse(await readFile(join(cwd, "dist/submit/chrome/submission-config.json"), "utf8"));
+    const summary = JSON.parse(await readFile(join(cwd, "dist/submit/submission-config.json"), "utf8"));
+
+    assert.equal(result.targets.length, 1);
+    assert.match(checklist, /Before Upload/);
+    assert.equal(config.listing.listingId, "chrome-listing");
+    assert.equal(summary.targets[0].target, "chrome");
+    await readFile(join(cwd, "dist/submit/chrome/release-fixture-chrome.zip"), "utf8");
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

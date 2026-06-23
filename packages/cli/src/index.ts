@@ -21,7 +21,7 @@ import {
   packageAllTargets,
   packageTarget as packagePackagingTarget
 } from "@openextkit/packaging";
-import { createExtensionReview, createPublishWizardReport, createReleaseReport, generateStoreMetadata, runPublishCheck } from "@openextkit/release";
+import { createExtensionReview, createPublishWizardReport, createReleaseReport, generateStoreMetadata, generateSubmitAssets, runPublishCheck } from "@openextkit/release";
 import { startOpenExtMcpServer } from "@openextkit/mcp-server";
 import {
   applyVisualRegression,
@@ -229,6 +229,15 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     const result = await generateStoreMetadata(project);
     console.log(`Store metadata written to ${result.storeDir}.`);
   });
+
+  cli
+    .command("submit-assets <target>", "Generate local store submission asset folders")
+    .option("--json", "Print JSON output")
+    .action(async (target: string, options: JsonOption) => {
+      const project = await resolveOpenExtProject(process.cwd());
+      const result = await generateSubmitAssets(project, parseTargetOrAll(target));
+      printResult(result, options.json);
+    });
 
   cli.command("publish-check", "Run publish readiness checks without publishing").action(async () => {
     const project = await resolveOpenExtProject(process.cwd());
@@ -461,6 +470,7 @@ async function renderDashboard(project: OpenExtProject, jobs: DashboardJob[] = [
         <p><strong>Overall readiness:</strong> ${publishCheck.readiness.percentage}% (${publishCheck.status})</p>
         <p><strong>Enabled targets:</strong> ${project.enabledTargets.map(escapeHtml).join(", ")}</p>
         <p><strong>Reports:</strong> ${Object.keys(reports).join(", ") || "none"}</p>
+        <p><strong>Submit assets:</strong> ${reports.submit ? "generated" : "not generated"}</p>
       </section>
       <section class="card">
         <h2>Actions</h2>
@@ -536,7 +546,8 @@ async function readReports(project: OpenExtProject): Promise<Record<string, any>
     tests: await readJsonIfExists(join(project.rootDir, "dist", "reports", "test-report.json")),
     visual: await readJsonIfExists(join(project.rootDir, "dist", "reports", "visual-test-report.json")),
     regression: await readJsonIfExists(join(project.rootDir, "dist", "reports", "visual-regression-report.json")),
-    release: await readJsonIfExists(join(project.rootDir, "dist", "reports", "release-report.json"))
+    release: await readJsonIfExists(join(project.rootDir, "dist", "reports", "release-report.json")),
+    submit: await readJsonIfExists(join(project.rootDir, "dist", "submit", "submission-config.json"))
   };
 }
 

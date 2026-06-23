@@ -54,7 +54,32 @@ test("valid config passes and normalizes values", () => {
   assert.equal(config.version, "0.1.0");
   assert.deepEqual(config.permissions.required, ["storage", "tabs"]);
   assert.equal(config.entrypoints.background, "src/background.ts");
+  assert.deepEqual(config.submission, {});
   assert.deepEqual(getEnabledTargets(config), ["chrome", "firefox", "edge"]);
+});
+
+test("submission config validates and normalizes target metadata", () => {
+  const config = validateOpenExtConfig({
+    ...validConfig,
+    submission: {
+      chrome: {
+        listingId: "chrome-listing",
+        privacyPolicyUrl: "https://example.com/privacy"
+      },
+      firefox: {
+        addonId: "firefox-addon",
+        supportUrl: "https://example.com/support"
+      },
+      edge: {
+        productId: "edge-product",
+        homepageUrl: "https://example.com"
+      }
+    }
+  });
+
+  assert.equal(config.submission.chrome?.listingId, "chrome-listing");
+  assert.equal(config.submission.firefox?.addonId, "firefox-addon");
+  assert.equal(config.submission.edge?.productId, "edge-product");
 });
 
 test("suggestCompatibilityFixes reports broad hosts without mutating", () => {

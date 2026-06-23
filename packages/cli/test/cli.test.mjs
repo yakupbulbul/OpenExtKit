@@ -345,6 +345,7 @@ test("release commands write publish readiness artifacts", async () => {
 
   try {
     const assets = await runCli(["store-assets"], { cwd });
+    const submitAssets = await runCli(["submit-assets", "all", "--json"], { cwd });
     const check = await runCli(["publish-check"], { cwd });
     const review = await runCli(["review", "all", "--json"], { cwd });
     const wizard = await runCli(["publish-wizard", "all", "--json"], { cwd });
@@ -353,6 +354,7 @@ test("release commands write publish readiness artifacts", async () => {
     const markdown = await readFile(join(cwd, "dist/reports/release-report.md"), "utf8");
     const json = JSON.parse(await readFile(join(cwd, "dist/reports/release-report.json"), "utf8"));
     const parsedCheck = JSON.parse(check.stdout);
+    const parsedSubmitAssets = JSON.parse(submitAssets.stdout);
     const parsedReview = JSON.parse(review.stdout);
     const parsedWizard = JSON.parse(wizard.stdout);
 
@@ -364,6 +366,7 @@ test("release commands write publish readiness artifacts", async () => {
     assert.equal(json.project.name, "CLI Test");
     assert.equal(typeof json.publishCheck.readiness.percentage, "number");
     assert.equal(typeof parsedCheck.readiness.percentage, "number");
+    assert.equal(parsedSubmitAssets.targets.some((entry) => entry.target === "chrome"), true);
     assert.equal(parsedReview.targets.some((entry) => entry.target === "chrome"), true);
     assert.equal(parsedWizard.items.some((entry) => entry.target === "chrome"), true);
     assert.equal(parsedCheck.checks.some((entry) => entry.name === "package.exists"), true);

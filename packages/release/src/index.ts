@@ -1,5 +1,5 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { copyFile, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { getTarget, type BrowserTarget, type OpenExtProject } from "@openextkit/core";
 import { createManifestReport, generateManifest, inspectPermissions } from "@openextkit/manifest";
 
@@ -56,6 +56,18 @@ export type StoreMetadataResult = {
   files: string[];
 };
 
+export type SubmitAssetTarget = {
+  target: BrowserTarget;
+  directory: string;
+  files: string[];
+  warnings: string[];
+};
+
+export type SubmitAssetsResult = {
+  submitDir: string;
+  targets: SubmitAssetTarget[];
+};
+
 export type ReleaseReport = {
   project: {
     name: string;
@@ -66,6 +78,7 @@ export type ReleaseReport = {
   publishCheck: PublishCheckResult;
   manifestReport: ReturnType<typeof createManifestReport>;
   storeMetadata: StoreMetadataResult;
+  submitAssets?: SubmitAssetsResult;
   files: {
     json: string;
     markdown: string;
@@ -134,6 +147,7 @@ export async function runPublishCheck(project: OpenExtProject): Promise<PublishC
 
     targetChecks.push(check(Boolean(project.config.description), "description.present", "Project description is present.", "Add description to openext.config before store submission.", undefined, "warning"));
     targetChecks.push(await checkStoreMetadata(project, target));
+    targetChecks.push(checkSubmissionConfig(project, target));
     targetChecks.push(check(Boolean(manifest.version), "manifest.version", "Manifest version is present.", "Manifest version is missing.", target));
     targetChecks.push(check(Boolean(manifest.icons), "manifest.icons", "Manifest icons are configured.", "Icons are not configured; stores usually require icon assets.", target, "warning"));
     targetChecks.push(await checkVisualScreenshots(project, target));
@@ -208,8 +222,62 @@ export async function generateStoreMetadata(project: OpenExtProject): Promise<St
   };
 }
 
+export async function generateSubmitAssets(project: OpenExtProject, target: BrowserTarget | "all" = "all"): Promise<SubmitAssetsResult> {
+  await generateStoreMetadata(project);
+  const publishCheck = await runPublishCheck(project);
+  const targets = target === "all" ? project.enabledTargets : [target];
+  const submitDir = join(project.rootDir, "dist", "submit");
+  const results: SubmitAssetTarget[] = [];
+
+  for (const browserTarget of targets) {
+    const directory = join(submitDir, browserTarget);
+    const files: string[] = [];
+    const warnings: string[] = [];
+    await mkdir(directory, { recursive: true });
+
+    const packagePath = getPackagePath(project, browserTarget);
+    if (await exists(packagePath)) {
+      const copiedPackage = join(directory, basename(packagePath));
+      await copyFile(packagePath, copiedPackage);
+      files.push(copiedPackage);
+    } else {
+      warnings.push(`Package output is missing for ${browserTarget}. Run openext package ${browserTarget}.`);
+    }
+
+    const storeTargetDir = join(project.rootDir, "dist", "store", browserTarget);
+    if (await exists(storeTargetDir, "directory")) {
+      for (const entry of await readdir(storeTargetDir)) {
+        const source = join(storeTargetDir, entry);
+        const destination = join(directory, entry);
+        if ((await stat(source)).isFile()) {
+          await copyFile(source, destination);
+          files.push(destination);
+        }
+      }
+    } else {
+      warnings.push(`Store metadata is missing for ${browserTarget}. Run openext store-assets.`);
+    }
+
+    const readiness = publishCheck.readiness.targets.find((entry) => entry.target === browserTarget);
+    const submissionConfig = project.config.submission[browserTarget] ?? {};
+    const configPath = await writeJson(join(directory, "submission-config.json"), {
+      target: browserTarget,
+      listing: submissionConfig,
+      readiness
+    });
+    const checklistPath = await writeText(join(directory, "submission-checklist.md"), submissionChecklist(project, browserTarget, warnings, readiness?.percentage ?? 0));
+    files.push(configPath, checklistPath);
+    results.push({ target: browserTarget, directory, files, warnings });
+  }
+
+  const result = { submitDir, targets: results };
+  await writeJson(join(submitDir, "submission-config.json"), result);
+  return result;
+}
+
 export async function createReleaseReport(project: OpenExtProject): Promise<ReleaseReport> {
   const storeMetadata = await generateStoreMetadata(project);
+  const submitAssets = await generateSubmitAssets(project);
   const publishCheck = await runPublishCheck(project);
   const manifestReport = createManifestReport(project);
   const reportsDir = join(project.rootDir, "dist", "reports");
@@ -223,6 +291,7 @@ export async function createReleaseReport(project: OpenExtProject): Promise<Rele
     publishCheck,
     manifestReport,
     storeMetadata,
+    submitAssets,
     files: {
       json: join(reportsDir, "release-report.json"),
       markdown: join(reportsDir, "release-report.md")
@@ -338,13 +407,15 @@ export async function createPublishWizardReport(project: OpenExtProject, target:
 }
 
 async function checkPackage(project: OpenExtProject, target: BrowserTarget): Promise<PublishCheck> {
-  const capabilities = getTarget(target);
-  const path =
-    capabilities.packageFormat === "zip"
-      ? join(project.rootDir, "dist", "packages", `${slugify(project.config.name)}-${target}.zip`)
-      : join(project.rootDir, "dist", target, "README-SAFARI.md");
-
+  const path = getPackagePath(project, target);
   return check(await exists(path), "package.exists", `Package output exists for ${target}.`, `Package output is missing for ${target}. Run openext package ${target}.`, target);
+}
+
+function getPackagePath(project: OpenExtProject, target: BrowserTarget): string {
+  const capabilities = getTarget(target);
+  return capabilities.packageFormat === "zip"
+    ? join(project.rootDir, "dist", "packages", `${slugify(project.config.name)}-${target}.zip`)
+    : join(project.rootDir, "dist", target, "README-SAFARI.md");
 }
 
 async function checkReport(project: OpenExtProject, fileName: string, name: string, target: BrowserTarget, missingStatus: PublishCheckStatus = "failed"): Promise<PublishCheck> {
@@ -365,6 +436,20 @@ async function checkVisualScreenshots(project: OpenExtProject, target: BrowserTa
 async function checkStoreMetadata(project: OpenExtProject, target: BrowserTarget): Promise<PublishCheck> {
   const path = join(project.rootDir, "dist", "store", target);
   return check(await exists(path, "directory"), "store.metadata", `Store metadata exists for ${target}.`, `Store metadata is missing for ${target}. Run openext store-assets.`, target, "warning");
+}
+
+function checkSubmissionConfig(project: OpenExtProject, target: BrowserTarget): PublishCheck {
+  const submission = project.config.submission[target];
+  if (target === "chrome") {
+    return check(Boolean(submission?.listingId), "submission.config", "Chrome listing ID is configured.", "Chrome submission listingId is missing.", target, "warning");
+  }
+  if (target === "firefox") {
+    return check(Boolean(submission?.addonId), "submission.config", "Firefox add-on ID is configured.", "Firefox submission addonId is missing.", target, "warning");
+  }
+  if (target === "edge" || target === "opera") {
+    return check(Boolean(submission?.productId), "submission.config", `${target} product ID is configured.`, `${target} submission productId is missing.`, target, "warning");
+  }
+  return check(Boolean(submission), "submission.config", "Submission config is present.", "Safari submission config should be reviewed manually.", target, "warning");
 }
 
 async function checkRootFile(project: OpenExtProject, fileName: string, name: string, okMessage: string): Promise<PublishCheck> {
@@ -426,7 +511,7 @@ function check(condition: boolean, name: string, okMessage: string, failMessage 
 }
 
 const readinessCategories: Array<{ category: StoreReadinessCategory; checks: string[] }> = [
-  { category: "metadata", checks: ["description.present", "store.metadata"] },
+  { category: "metadata", checks: ["description.present", "store.metadata", "submission.config"] },
   { category: "assets", checks: ["manifest.icons", "visual.screenshots"] },
   { category: "permissionsPrivacy", checks: ["privacy.policy", "permissions.risk"] },
   { category: "package", checks: ["package.exists"] },
@@ -560,7 +645,7 @@ function existingReportLinks(project: OpenExtProject, target: BrowserTarget): Re
 }
 
 function wizardCategory(name: string): string {
-  if (/description|metadata|store/.test(name)) {
+  if (/description|metadata|store|submission/.test(name)) {
     return "metadata";
   }
   if (/icon|screenshot|visual/.test(name)) {
@@ -644,6 +729,37 @@ function screenshotChecklistMetadata(project: OpenExtProject, target: BrowserTar
   return `# Screenshot Checklist for ${target}\n\n- [ ] Store tile/icon screenshot.\n- [ ] Primary extension surface: ${surfaces.join(", ") || "add a popup, options page, or content script surface"}.\n- [ ] Permissions or onboarding screen if applicable.\n- [ ] Visual baseline captured with openext visual ${target} --update.\n`;
 }
 
+function submissionChecklist(project: OpenExtProject, target: BrowserTarget, warnings: string[], readiness: number): string {
+  const submission = project.config.submission[target] ?? {};
+  const warningList = warnings.length > 0 ? warnings.map((warning) => `- [ ] ${warning}`).join("\n") : "- [x] No local submit-asset warnings.";
+  return `# ${target} Submission Checklist
+
+Project: ${project.config.name}
+Version: ${project.config.version}
+Readiness: ${readiness}%
+
+## Listing IDs
+
+- listingId: ${submission.listingId ?? "not configured"}
+- addonId: ${submission.addonId ?? "not configured"}
+- productId: ${submission.productId ?? "not configured"}
+- privacyPolicyUrl: ${submission.privacyPolicyUrl ?? "not configured"}
+- supportUrl: ${submission.supportUrl ?? "not configured"}
+- homepageUrl: ${submission.homepageUrl ?? "not configured"}
+
+## Before Upload
+
+- [ ] Review the copied package file.
+- [ ] Review store metadata markdown files.
+- [ ] Confirm permission explanations match the extension behavior.
+- [ ] Confirm privacy answers and public URLs are current.
+
+## Local Warnings
+
+${warningList}
+`;
+}
+
 function safariMetadata(project: OpenExtProject, displayName: string): string {
   return `# ${displayName} Store Notes\n\n${project.config.name} has experimental ${displayName} output. Verify macOS, Xcode, and store-specific requirements manually.\n`;
 }
@@ -655,8 +771,11 @@ function releaseReportMarkdown(report: ReleaseReport): string {
   const readiness = report.publishCheck.readiness.targets
     .map((target) => `- ${target.target}: ${target.percentage}% (${target.score}/${target.maxScore}, ${target.status})`)
     .join("\n");
+  const submitAssets = report.submitAssets?.targets
+    .map((target) => `- ${target.target}: ${target.directory}${target.warnings.length > 0 ? ` (${target.warnings.length} warning(s))` : ""}`)
+    .join("\n") || "No submit assets generated.";
 
-  return `# Release Report\n\nProject: ${report.project.name}\nVersion: ${report.project.version}\nStatus: ${report.publishCheck.status}\nStore readiness: ${report.publishCheck.readiness.percentage}% (${report.publishCheck.readiness.score}/${report.publishCheck.readiness.maxScore})\nGenerated: ${report.generatedAt}\n\n## Store Readiness\n\n${readiness}\n\n## Checks\n\n${checks}\n`;
+  return `# Release Report\n\nProject: ${report.project.name}\nVersion: ${report.project.version}\nStatus: ${report.publishCheck.status}\nStore readiness: ${report.publishCheck.readiness.percentage}% (${report.publishCheck.readiness.score}/${report.publishCheck.readiness.maxScore})\nGenerated: ${report.generatedAt}\n\n## Store Readiness\n\n${readiness}\n\n## Submit Assets\n\n${submitAssets}\n\n## Checks\n\n${checks}\n`;
 }
 
 function slugify(value: string): string {

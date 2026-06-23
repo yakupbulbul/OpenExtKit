@@ -97,6 +97,17 @@ export type OpenExtEntrypoints = {
   contentScripts: OpenExtContentScript[];
 };
 
+export type OpenExtSubmissionTargetConfig = {
+  listingId?: string;
+  addonId?: string;
+  productId?: string;
+  privacyPolicyUrl?: string;
+  supportUrl?: string;
+  homepageUrl?: string;
+};
+
+export type OpenExtSubmissionConfig = Partial<Record<BrowserTarget, OpenExtSubmissionTargetConfig>>;
+
 export type OpenExtConfig = {
   name: string;
   version: string;
@@ -105,6 +116,7 @@ export type OpenExtConfig = {
   targets: Partial<Record<BrowserTarget, OpenExtTargetConfig>>;
   permissions: OpenExtPermissions;
   entrypoints: OpenExtEntrypoints;
+  submission: OpenExtSubmissionConfig;
 };
 
 export type OpenExtProject = {
@@ -349,6 +361,28 @@ const targetsSchema = z
     message: "At least one browser target must be enabled"
   });
 
+const submissionTargetSchema = z
+  .object({
+    listingId: z.string().min(1).optional(),
+    addonId: z.string().min(1).optional(),
+    productId: z.string().min(1).optional(),
+    privacyPolicyUrl: z.string().url().optional(),
+    supportUrl: z.string().url().optional(),
+    homepageUrl: z.string().url().optional()
+  })
+  .strict();
+
+const submissionSchema = z
+  .object({
+    chrome: submissionTargetSchema.optional(),
+    firefox: submissionTargetSchema.optional(),
+    edge: submissionTargetSchema.optional(),
+    opera: submissionTargetSchema.optional(),
+    safari: submissionTargetSchema.optional()
+  })
+  .strict()
+  .default({});
+
 const openExtConfigSchema = z
   .object({
     name: z.string().min(1, "name is required"),
@@ -357,7 +391,8 @@ const openExtConfigSchema = z
     framework: z.enum(extensionFrameworks).default("vanilla"),
     targets: targetsSchema,
     permissions: permissionsSchema,
-    entrypoints: entrypointsSchema
+    entrypoints: entrypointsSchema,
+    submission: submissionSchema
   })
   .strict();
 
@@ -485,7 +520,8 @@ function normalizeConfig(config: z.output<typeof openExtConfigSchema>): OpenExtC
     framework: config.framework,
     targets: normalizeTargets(config.targets),
     permissions: normalizePermissions(config.permissions),
-    entrypoints: normalizeEntrypoints(config.entrypoints)
+    entrypoints: normalizeEntrypoints(config.entrypoints),
+    submission: normalizeSubmission(config.submission)
   };
 }
 
@@ -529,6 +565,16 @@ function normalizeEntrypoints(entrypoints: z.output<typeof entrypointsSchema>): 
       css: script.css.map(normalizeConfigPathValue)
     }))
   };
+}
+
+function normalizeSubmission(submission: z.output<typeof submissionSchema>): OpenExtSubmissionConfig {
+  const normalized: OpenExtSubmissionConfig = {};
+  for (const target of browserTargets) {
+    if (submission[target]) {
+      normalized[target] = { ...submission[target] };
+    }
+  }
+  return normalized;
 }
 
 function normalizeConfigPath(value: string | undefined): string | undefined {
