@@ -2,7 +2,7 @@
 
 OpenExtKit is an AI-native, cross-browser extension development toolkit for building, testing, validating, packaging, and sharing browser extensions from one TypeScript codebase.
 
-The project is designed for Chrome, Firefox, and Edge Manifest V3 extensions first, with Safari represented in the architecture as an experimental target that can report macOS and Xcode-specific requirements clearly.
+The project is designed for Chrome, Firefox, Edge, and Opera Manifest V3 extensions first, with Safari represented in the architecture as an experimental target that can report macOS and Xcode-specific requirements clearly.
 
 ## Why It Exists
 
@@ -24,6 +24,7 @@ node packages/cli/dist/index.js init my-extension --template vanilla
 cd my-extension
 pnpm install
 pnpm exec openext build all
+pnpm exec openext doctor --target chrome
 pnpm exec openext test all
 pnpm exec openext package all
 pnpm exec openext release-report
@@ -33,7 +34,7 @@ Published package installation is not part of the V1 pre-release yet; local work
 
 ## Visual Testing
 
-OpenExtKit can run visual extension checks for Chromium-based targets by loading the built extension with Playwright and capturing screenshots of configured HTML surfaces such as `popup` and `options` pages.
+OpenExtKit can run visual extension checks for Chromium-based targets by loading the built extension with Playwright and capturing screenshots of configured HTML surfaces such as `popup`, `options`, and supported content script test pages.
 
 Set a browser executable, build the extension, then run the visual test command:
 
@@ -43,7 +44,14 @@ pnpm build
 node packages/cli/dist/index.js visual chrome
 ```
 
-For Edge, use `OPENEXTKIT_EDGE_EXECUTABLE`. Screenshots are written to `dist/reports/visual/<target>/`, and the structured report is written to `dist/reports/visual-test-report.json`.
+For Edge, use `OPENEXTKIT_EDGE_EXECUTABLE`. For Opera, use `OPENEXTKIT_OPERA_EXECUTABLE`. Screenshots are written to `dist/reports/visual/<target>/`, and the structured report is written to `dist/reports/visual-test-report.json`.
+
+Visual regression baselines are available with:
+
+```sh
+openext visual chrome --update
+openext visual chrome --compare
+```
 
 Firefox and Safari visual loading are reported as unsupported capabilities for now; their generated outputs still participate in smoke, compatibility, and packaging checks.
 
@@ -57,7 +65,16 @@ Start the MCP server from a project workspace:
 node packages/cli/dist/index.js mcp
 ```
 
-Useful MCP tools include `build_all_targets`, `run_all_browser_tests`, `run_all_visual_tests`, `package_all_targets`, and `create_release_report`.
+Useful MCP tools include `build_all_targets`, `run_diagnostics`, `run_all_browser_tests`, `run_all_visual_tests`, `package_all_targets`, and `create_release_report`.
+
+## Developer Workflows
+
+- `openext dev chrome` builds the target, launches a persistent browser profile with the unpacked extension, opens the first popup/options surface when available, watches files, rebuilds, and reloads the extension.
+- `openext doctor --target chrome` reports target-specific configuration, manifest, permissions, package, report, store metadata, visual screenshot, and browser executable status.
+- `openext publish-check` and `openext release-report` include a store readiness score across metadata, assets, permissions/privacy, package, tests, and visual checks.
+- Rich templates are available with `openext init my-extension --template ai-sidebar`, `command-palette`, `tab-manager`, `local-productivity-blocker`, `new-tab-dashboard`, and `context-menu-tool`.
+
+More details are in `docs/development.md`, `docs/testing.md`, `docs/templates.md`, `docs/browser-support.md`, `docs/publishing.md`, and `docs/mcp-tools.md`.
 
 ## Architecture Overview
 
@@ -93,6 +110,13 @@ OpenExtKit is a pnpm and Turborepo monorepo made of small packages:
 - Phase 13: CI browser matrix validation.
 - Phase 14: open-source release quality pass.
 - Phase 15: visual extension testing with Playwright screenshots and MCP tool access.
+- Phase 16: interactive `openext dev <target>` browser install and reload mode.
+- Phase 17: visual regression baselines, comparison reports, and diff artifacts.
+- Phase 18: Opera as a first-class Chromium-compatible target.
+- Phase 19: targeted diagnostics with `openext doctor --target <target>` and MCP diagnostics.
+- Phase 20: store readiness scoring in publish and release reports.
+- Phase 21: richer AI sidebar, command palette, tab manager, productivity blocker, new tab dashboard, and context menu templates.
+- Phase 22: content script visual testing on deterministic test pages.
 
 ## Status
 
