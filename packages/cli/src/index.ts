@@ -4,7 +4,7 @@ import { watch, type FSWatcher } from "node:fs";
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { getTarget, listTargets, loadOpenExtConfig, resolveOpenExtProject, type BrowserTarget, type OpenExtProject } from "@openextkit/core";
+import { browserTargets, getTarget, listTargets, loadOpenExtConfig, resolveOpenExtProject, type BrowserTarget, type OpenExtProject } from "@openextkit/core";
 import {
   createManifestReport,
   generateAllManifests,
@@ -31,8 +31,6 @@ import { isTemplateName, templateNames, writeTemplate } from "@openextkit/templa
 import { cac } from "cac";
 
 const execFileAsync = promisify(execFile);
-const validTargets = ["chrome", "firefox", "edge", "safari"] as const;
-
 type JsonOption = {
   json?: boolean;
 };
@@ -428,11 +426,11 @@ async function ensureEmptyDirectory(targetDir: string): Promise<void> {
 }
 
 function parseTarget(target: string): BrowserTarget {
-  if (validTargets.includes(target as BrowserTarget)) {
+  if (browserTargets.includes(target as BrowserTarget)) {
     return target as BrowserTarget;
   }
 
-  throw new Error(`Invalid target "${target}". Expected one of: ${validTargets.join(", ")}.`);
+  throw new Error(`Invalid target "${target}". Expected one of: ${browserTargets.join(", ")}.`);
 }
 
 function parseTargetOrAll(target: string): BrowserTarget | "all" {

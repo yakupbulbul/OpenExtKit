@@ -221,7 +221,8 @@ export default defineOpenExtConfig({
   targets: {
     chrome: {},
     firefox: {},
-    edge: {}
+    edge: {},
+    opera: {}
   },
   permissions: {
     required: ["storage"],

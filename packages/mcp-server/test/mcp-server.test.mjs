@@ -215,12 +215,14 @@ test("browser target MCP tools work", async () => {
 
   try {
     const list = await runOpenExtMcpTool("list_browser_targets", {}, { cwd });
-    const inspect = await runOpenExtMcpTool("inspect_browser_target", { target: "chrome" }, { cwd });
+    const inspect = await runOpenExtMcpTool("inspect_browser_target", { target: "opera" }, { cwd });
     const suggestions = await runOpenExtMcpTool("suggest_target_changes", {}, { cwd });
 
     assert.equal(list.status, "ok");
     assert.equal(list.data.targets.some((target) => target.name === "chrome"), true);
+    assert.equal(list.data.targets.some((target) => target.name === "opera"), true);
     assert.equal(inspect.data.supportsManifestV3, true);
+    assert.equal(inspect.data.supportsExtensionLoadingInTests, true);
     assert.equal(Array.isArray(suggestions.data.suggestions), true);
   } finally {
     await rm(cwd, { recursive: true, force: true });

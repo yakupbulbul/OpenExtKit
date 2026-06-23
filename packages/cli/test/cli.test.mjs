@@ -211,9 +211,10 @@ test("visual all reports missing browser executable clearly", async () => {
 
 test("targets commands expose browser capabilities", async () => {
   const list = await runCli(["targets"]);
-  const inspect = await runCli(["targets", "inspect", "chrome"]);
+  const inspect = await runCli(["targets", "inspect", "opera"]);
 
   assert.match(list.stdout, /Chrome/);
+  assert.match(list.stdout, /Opera/);
   assert.match(inspect.stdout, /supportsManifestV3/);
 });
 
@@ -244,7 +245,7 @@ test("invalid target fails", async () => {
   const cwd = await createConfiguredProject();
 
   try {
-    await assert.rejects(() => runCli(["inspect", "manifest", "opera"], { cwd }), /Invalid target/);
+    await assert.rejects(() => runCli(["inspect", "manifest", "brave"], { cwd }), /Invalid target/);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

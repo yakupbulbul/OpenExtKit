@@ -7,7 +7,7 @@ import { z } from "zod";
 
 export const openExtKitCoreVersion = "0.0.0";
 
-export const browserTargets = ["chrome", "firefox", "edge", "safari"] as const;
+export const browserTargets = ["chrome", "firefox", "edge", "opera", "safari"] as const;
 export const extensionFrameworks = ["vanilla", "react", "svelte", "vue"] as const;
 export const configFileNames = [
   "openext.config.ts",
@@ -172,6 +172,21 @@ const builtInTargets: TargetCapabilities[] = [
     experimental: false
   },
   {
+    name: "opera",
+    displayName: "Opera",
+    manifestVersions: [3],
+    supportsManifestV3: true,
+    supportsServiceWorkerBackground: true,
+    supportsBackgroundScripts: false,
+    supportsDeclarativeNetRequest: true,
+    supportsSidePanel: true,
+    supportsAction: true,
+    supportsBrowserSpecificSettings: false,
+    supportsExtensionLoadingInTests: true,
+    packageFormat: "zip",
+    experimental: false
+  },
+  {
     name: "safari",
     displayName: "Safari",
     manifestVersions: [3],
@@ -249,6 +264,7 @@ const targetsSchema = z
     chrome: targetConfigSchema.optional(),
     firefox: targetConfigSchema.optional(),
     edge: targetConfigSchema.optional(),
+    opera: targetConfigSchema.optional(),
     safari: targetConfigSchema.optional()
   })
   .strict()

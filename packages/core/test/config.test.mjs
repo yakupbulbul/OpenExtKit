@@ -81,13 +81,26 @@ test("invalid target fails", () => {
         ...validConfig,
         targets: {
           chrome: {},
-          opera: {}
+          brave: {}
         }
       }),
     (error) =>
       error instanceof OpenExtConfigError &&
       error.issues.some((issue) => issue.includes("Unrecognized key"))
   );
+});
+
+test("Opera target is valid and Chromium-compatible", () => {
+  const config = validateOpenExtConfig({
+    ...validConfig,
+    targets: {
+      opera: {}
+    }
+  });
+
+  assert.equal(config.targets.opera?.manifest, 3);
+  assert.equal(getTarget("opera").supportsDeclarativeNetRequest, true);
+  assert.equal(getTarget("opera").supportsExtensionLoadingInTests, true);
 });
 
 test("manifest defaults to 3", () => {
@@ -215,8 +228,9 @@ test("resolveOpenExtProject returns project metadata", async () => {
 });
 
 test("built-in browser targets are registered", () => {
-  assert.deepEqual(listTargets().map((target) => target.name), ["chrome", "firefox", "edge", "safari"]);
+  assert.deepEqual(listTargets().map((target) => target.name), ["chrome", "firefox", "edge", "opera", "safari"]);
   assert.equal(getTarget("chrome").supportsManifestV3, true);
+  assert.equal(getTarget("opera").packageFormat, "zip");
   assert.equal(getTarget("safari").experimental, true);
 });
 

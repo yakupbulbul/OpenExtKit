@@ -51,6 +51,7 @@ for (const template of templateNames) {
       const manifest = generateManifest(project, "chrome");
 
       assert.equal(config.name.length > 0, true);
+      assert.equal(config.targets.opera?.manifest, 3);
       assert.equal(manifest.manifest_version, 3);
       assert.equal(manifest.name, config.name);
     } finally {

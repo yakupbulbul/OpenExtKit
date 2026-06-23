@@ -1,4 +1,4 @@
-export type BrowserName = "chrome" | "firefox" | "edge" | "safari" | "unknown";
+export type BrowserName = "chrome" | "firefox" | "edge" | "opera" | "safari" | "unknown";
 
 export type BrowserInfo = {
   name: BrowserName;
@@ -72,6 +72,10 @@ export function getBrowserInfo(): BrowserInfo {
     return { name: "edge", userAgent, apiNamespace };
   }
 
+  if (lowerUserAgent.includes("opr/") || lowerUserAgent.includes("opera/")) {
+    return { name: "opera", userAgent, apiNamespace };
+  }
+
   if (lowerUserAgent.includes("firefox/")) {
     return { name: "firefox", userAgent, apiNamespace };
   }
@@ -97,6 +101,10 @@ export function isFirefox(): boolean {
 
 export function isEdge(): boolean {
   return getBrowserInfo().name === "edge";
+}
+
+export function isOpera(): boolean {
+  return getBrowserInfo().name === "opera";
 }
 
 export function isSafari(): boolean {

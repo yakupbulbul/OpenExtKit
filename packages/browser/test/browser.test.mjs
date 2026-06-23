@@ -6,6 +6,7 @@ import {
   isChrome,
   isEdge,
   isFirefox,
+  isOpera,
   isSafari,
   OpenExtBrowserError
 } from "../dist/index.js";
@@ -144,7 +145,7 @@ test("browser detection reads user agent and API namespace", () => {
   assert.equal(isFirefox(), true);
 });
 
-test("browser predicates detect Chrome, Edge, and Safari", () => {
+test("browser predicates detect Chrome, Edge, Opera, and Safari", () => {
   globalThis.browser = undefined;
   globalThis.chrome = {};
 
@@ -153,6 +154,9 @@ test("browser predicates detect Chrome, Edge, and Safari", () => {
 
   setUserAgent("Mozilla/5.0 Edg/120.0");
   assert.equal(isEdge(), true);
+
+  setUserAgent("Mozilla/5.0 Chrome/120.0 OPR/106.0");
+  assert.equal(isOpera(), true);
 
   globalThis.chrome = undefined;
   setUserAgent("Mozilla/5.0 Version/17.0 Safari/605.1.15");
