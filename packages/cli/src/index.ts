@@ -53,6 +53,7 @@ type DevOptions = {
 type VisualOptions = {
   update?: boolean;
   compare?: boolean;
+  record?: boolean;
   threshold?: string;
 };
 
@@ -105,6 +106,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     .command("visual <target>", "Run visual browser extension tests and capture screenshots")
     .option("--update", "Update visual baselines from captured screenshots")
     .option("--compare", "Compare captured screenshots against visual baselines")
+    .option("--record", "Pause for real-browser interaction, then save captures as baselines")
     .option("--threshold <number>", "Allowed visual difference ratio before comparison fails")
     .action(async (target: string, options: VisualOptions) => {
       await visualTarget(target, options);
@@ -509,6 +511,7 @@ async function visualTarget(target: string, options: VisualOptions = {}): Promis
   const visualOptions = {
     update: options.update,
     compare: options.compare,
+    record: options.record,
     threshold: options.threshold ? Number(options.threshold) : undefined
   };
 

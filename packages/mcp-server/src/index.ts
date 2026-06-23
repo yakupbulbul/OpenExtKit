@@ -98,6 +98,7 @@ const projectPathSchema = z.string().min(1).default(".");
 const visualOptionsSchema = {
   update: z.boolean().default(false),
   compare: z.boolean().default(false),
+  record: z.boolean().default(false),
   threshold: z.number().min(0).max(1).optional()
 };
 
@@ -499,10 +500,11 @@ function readTemplate(input: Record<string, unknown>): (typeof templateNames)[nu
   throw new Error(`Invalid template. Expected one of: ${templateNames.join(", ")}.`);
 }
 
-function readVisualOptions(input: Record<string, unknown>): { update?: boolean; compare?: boolean; threshold?: number } {
+function readVisualOptions(input: Record<string, unknown>): { update?: boolean; compare?: boolean; record?: boolean; threshold?: number } {
   return {
     update: Boolean(input.update),
     compare: Boolean(input.compare),
+    record: Boolean(input.record),
     threshold: typeof input.threshold === "number" ? input.threshold : undefined
   };
 }

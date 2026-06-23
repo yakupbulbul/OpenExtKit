@@ -288,6 +288,24 @@ test("visual regression update writes baselines", async () => {
   }
 });
 
+test("visual regression record mode writes baselines", async () => {
+  const cwd = await createProject({ targets: { chrome: {} } });
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const screenshotPath = join(cwd, "dist/reports/visual/chrome/popup.png");
+    await mkdir(join(cwd, "dist/reports/visual/chrome"), { recursive: true });
+    await writeFile(screenshotPath, Buffer.from([4, 5, 6]));
+    const report = await applyVisualRegression(project, fakeVisualReport(project, screenshotPath), { record: true });
+    const baseline = await readFile(join(cwd, "dist/reports/visual-baselines/chrome/popup.png"));
+
+    assert.equal(report.mode, "update");
+    assert.deepEqual([...baseline], [4, 5, 6]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("visual regression compare passes within threshold", async () => {
   const cwd = await createProject({ targets: { chrome: {} } });
 

@@ -77,6 +77,7 @@ export type VisualRegressionMode = "update" | "compare";
 export type VisualTestOptions = {
   update?: boolean;
   compare?: boolean;
+  record?: boolean;
   threshold?: number;
 };
 
@@ -213,7 +214,7 @@ export async function runAllBrowserSmokeTests(project: OpenExtProject): Promise<
 export async function runBrowserVisualTest(
   project: OpenExtProject,
   target: BrowserTarget,
-  _options: VisualTestOptions = {}
+  options: VisualTestOptions = {}
 ): Promise<BrowserVisualTestResult> {
   const startedAt = Date.now();
   const checks: TestCheck[] = [];
@@ -287,6 +288,9 @@ export async function runBrowserVisualTest(
 
         await page.goto(url, { waitUntil: "domcontentloaded" });
         await page.setViewportSize({ width: 390, height: 640 });
+        if (options.record) {
+          await page.waitForTimeout(1500);
+        }
         await mkdir(dirname(screenshotPath), { recursive: true });
         await page.screenshot({ path: screenshotPath, fullPage: true });
         await page.close();
@@ -320,7 +324,7 @@ export async function runBrowserVisualTest(
         const pageStartedAt = Date.now();
 
         await page.goto(surface.url, { waitUntil: "domcontentloaded" });
-        await page.waitForTimeout(250);
+        await page.waitForTimeout(options.record ? 1500 : 250);
         await page.setViewportSize({ width: 1024, height: 768 });
         await mkdir(dirname(screenshotPath), { recursive: true });
         await page.screenshot({ path: screenshotPath, fullPage: true });
@@ -379,7 +383,7 @@ export async function applyVisualRegression(
   report: BrowserVisualTestReport,
   options: VisualTestOptions = {}
 ): Promise<VisualRegressionReport | undefined> {
-  const mode = options.update ? "update" : options.compare ? "compare" : undefined;
+  const mode = options.update || options.record ? "update" : options.compare ? "compare" : undefined;
   if (!mode) {
     return undefined;
   }
