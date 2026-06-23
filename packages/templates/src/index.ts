@@ -44,6 +44,11 @@ export type TemplateMetadata = {
   entrypoints: string[];
   permissions: string[];
   previewAsset: string;
+  preview: {
+    assetPath: string;
+    mediaType: "image/svg+xml";
+    demoCommand: string;
+  };
 };
 
 type CreateTemplateOptions = {
@@ -192,6 +197,61 @@ export function listTemplateMetadata(): TemplateMetadata[] {
   return templateNames.map((name) => getTemplateMetadata(name));
 }
 
+export function getTemplatePreviewSvg(name: TemplateName): string {
+  const metadata = getTemplateMetadata(name);
+  const title = escapeSvg(toTitle(name));
+  const category = escapeSvg(metadata.category);
+  const tags = escapeSvg(metadata.tags.slice(0, 3).join(" / "));
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-label="${title} preview">
+  <rect width="960" height="540" fill="#f6f8fa"/>
+  <rect x="56" y="52" width="848" height="436" rx="18" fill="#ffffff" stroke="#d0d7de"/>
+  <rect x="96" y="94" width="300" height="44" rx="8" fill="#24292f"/>
+  <rect x="96" y="164" width="768" height="20" rx="5" fill="#8c959f"/>
+  <rect x="96" y="204" width="520" height="20" rx="5" fill="#afb8c1"/>
+  <rect x="96" y="280" width="222" height="116" rx="10" fill="#ddf4ff" stroke="#54aeef"/>
+  <rect x="366" y="280" width="222" height="116" rx="10" fill="#dafbe1" stroke="#57ab5a"/>
+  <rect x="636" y="280" width="222" height="116" rx="10" fill="#fff8c5" stroke="#d4a72c"/>
+  <text x="116" y="125" fill="#ffffff" font-family="Arial, sans-serif" font-size="24" font-weight="700">${title}</text>
+  <text x="96" y="242" fill="#57606a" font-family="Arial, sans-serif" font-size="22">${category}</text>
+  <text x="116" y="345" fill="#0969da" font-family="Arial, sans-serif" font-size="20">${tags}</text>
+  <text x="386" y="345" fill="#1a7f37" font-family="Arial, sans-serif" font-size="20">OpenExtKit</text>
+  <text x="656" y="345" fill="#9a6700" font-family="Arial, sans-serif" font-size="20">Preview</text>
+</svg>`;
+}
+
+export function renderTemplateGalleryHtml(): string {
+  const cards = listTemplateMetadata()
+    .map((template) => `<article class="card">
+      <img src="/previews/${template.name}.svg" alt="${escapeHtml(template.name)} preview" />
+      <h2>${escapeHtml(template.name)}</h2>
+      <p>${escapeHtml(template.targetUseCase)}</p>
+      <p><strong>Category:</strong> ${escapeHtml(template.category)}</p>
+      <p><strong>Permissions:</strong> ${escapeHtml(template.permissions.join(", ") || "none")}</p>
+      <code>${escapeHtml(template.preview.demoCommand)}</code>
+    </article>`)
+    .join("");
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>OpenExtKit Template Gallery</title>
+    <style>
+      body { margin: 0; font: 14px system-ui, sans-serif; color: #1f2328; background: #f6f8fa; }
+      header { padding: 24px; background: #fff; border-bottom: 1px solid #d0d7de; }
+      main { padding: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+      .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 16px; }
+      img { width: 100%; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; }
+      h1, h2 { margin: 0 0 8px; }
+      code { display: block; padding: 8px; background: #f6f8fa; border-radius: 6px; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <header><h1>OpenExtKit Template Gallery</h1><p>${templateNames.length} starter templates</p></header>
+    <main>${cards}</main>
+  </body>
+</html>`;
+}
+
 export async function writeTemplate(options: WriteTemplateOptions): Promise<ExtensionTemplate> {
   if (!isTemplateName(options.template)) {
     throw new OpenExtTemplateError(
@@ -320,7 +380,12 @@ function getTemplateMetadata(name: TemplateName, flags?: TemplateFlags, descript
     targetUseCase: templateUseCase(name),
     entrypoints,
     permissions: flags?.permissions ?? templatePermissions(name),
-    previewAsset: `previews/${name}.png`
+    previewAsset: `previews/${name}.svg`,
+    preview: {
+      assetPath: `previews/${name}.svg`,
+      mediaType: "image/svg+xml",
+      demoCommand: `openext init my-extension --template ${name}`
+    }
   };
 }
 
@@ -727,4 +792,16 @@ function toTitle(value: string): string {
     .filter(Boolean)
     .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
     .join(" ");
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function escapeSvg(value: string): string {
+  return escapeHtml(value);
 }

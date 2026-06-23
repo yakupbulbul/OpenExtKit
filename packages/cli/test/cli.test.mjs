@@ -338,9 +338,12 @@ test("targets commands expose browser capabilities", async () => {
 
 test("templates command exposes marketplace metadata", async () => {
   const result = await runCli(["templates", "--json"]);
+  const galleryHelp = await runCli(["templates", "gallery", "--help"]);
   const parsed = JSON.parse(result.stdout);
 
   assert.equal(parsed.templates.some((entry) => entry.name === "web-clipper" && entry.category), true);
+  assert.equal(parsed.templates.some((entry) => entry.name === "web-clipper" && entry.preview.mediaType === "image/svg+xml"), true);
+  assert.match(galleryHelp.stdout, /Template gallery port/);
 });
 
 test("compat fix suggests changes without writing files", async () => {

@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { loadOpenExtConfig, resolveOpenExtProject } from "@openextkit/core";
 import { generateManifest } from "@openextkit/manifest";
-import { listTemplateMetadata, templateNames, writeTemplate } from "../dist/index.js";
+import { getTemplatePreviewSvg, listTemplateMetadata, renderTemplateGalleryHtml, templateNames, writeTemplate } from "../dist/index.js";
 
 async function createTemplateProject(template) {
   const cwd = await mkdtemp(join(tmpdir(), `openext-template-${template}-`));
@@ -65,6 +65,9 @@ for (const template of templateNames) {
 test("template marketplace includes expanded template metadata", () => {
   const metadata = listTemplateMetadata();
 
-  assert.equal(metadata.some((entry) => entry.name === "web-clipper" && entry.previewAsset.endsWith(".png")), true);
+  assert.equal(metadata.some((entry) => entry.name === "web-clipper" && entry.previewAsset.endsWith(".svg")), true);
   assert.equal(metadata.some((entry) => entry.name === "developer-inspector" && entry.permissions.includes("scripting")), true);
+  assert.equal(metadata.every((entry) => entry.preview.mediaType === "image/svg+xml"), true);
+  assert.match(getTemplatePreviewSvg("web-clipper"), /<svg/);
+  assert.match(renderTemplateGalleryHtml(), /OpenExtKit Template Gallery/);
 });

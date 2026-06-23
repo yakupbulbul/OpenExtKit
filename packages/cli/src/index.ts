@@ -33,7 +33,7 @@ import {
   runExtensionE2ETests,
   startBrowserDevSession
 } from "@openextkit/testing";
-import { isTemplateName, listTemplateMetadata, templateNames, writeTemplate } from "@openextkit/templates";
+import { getTemplatePreviewSvg, isTemplateName, listTemplateMetadata, renderTemplateGalleryHtml, templateNames, writeTemplate } from "@openextkit/templates";
 import { cac } from "cac";
 
 const execFileAsync = promisify(execFile);
@@ -62,6 +62,11 @@ type VisualOptions = {
 };
 
 type DashboardOptions = {
+  port?: string;
+  host?: string;
+};
+
+type TemplateGalleryOptions = {
   port?: string;
   host?: string;
 };
@@ -168,9 +173,18 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   });
 
   cli
-    .command("templates", "List available project templates")
+    .command("templates [action]", "List available project templates or serve the preview gallery")
     .option("--json", "Print JSON output")
-    .action((options: JsonOption) => {
+    .option("--port <number>", "Template gallery port", { default: "4218" })
+    .option("--host <host>", "Template gallery host", { default: "127.0.0.1" })
+    .action(async (action: string | undefined, options: JsonOption & TemplateGalleryOptions) => {
+      if (action === "gallery") {
+        await templateGallery(options);
+        return;
+      }
+      if (action) {
+        throw new Error(`Invalid templates action "${action}". Expected "gallery".`);
+      }
       printResult({ templates: listTemplateMetadata() }, options.json);
     });
 
@@ -399,6 +413,44 @@ async function dashboard(options: DashboardOptions): Promise<void> {
   });
   console.log(`OpenExtKit dashboard: http://${host}:${port}`);
   console.log(`Dashboard action token: ${token}`);
+}
+
+async function templateGallery(options: TemplateGalleryOptions): Promise<void> {
+  const port = Number(options.port ?? 4218);
+  const host = options.host ?? "127.0.0.1";
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid template gallery port "${options.port}".`);
+  }
+
+  const server = createServer((request, response) => {
+    try {
+      const url = new URL(request.url ?? "/", `http://${host}:${port}`);
+      if (url.pathname === "/" || url.pathname === "/index.html") {
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.end(renderTemplateGalleryHtml());
+        return;
+      }
+
+      const previewMatch = /^\/previews\/([^/]+)\.svg$/.exec(url.pathname);
+      const previewName = previewMatch?.[1];
+      if (previewName && isTemplateName(previewName)) {
+        response.writeHead(200, { "content-type": "image/svg+xml; charset=utf-8" });
+        response.end(getTemplatePreviewSvg(previewName));
+        return;
+      }
+
+      response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Not found");
+    } catch (error) {
+      response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+      response.end(error instanceof Error ? error.message : String(error));
+    }
+  });
+
+  await new Promise<void>((resolveListen) => {
+    server.listen(port, host, resolveListen);
+  });
+  console.log(`OpenExtKit template gallery: http://${host}:${port}`);
 }
 
 async function renderDashboard(project: OpenExtProject, jobs: DashboardJob[] = [], token = ""): Promise<string> {
