@@ -259,7 +259,10 @@ test("release commands write publish readiness artifacts", async () => {
     assert.match(report.stdout, /Release report written/);
     assert.match(description, /CLI test description/);
     assert.match(markdown, /Release Report/);
+    assert.match(markdown, /Store Readiness/);
     assert.equal(json.project.name, "CLI Test");
+    assert.equal(typeof json.publishCheck.readiness.percentage, "number");
+    assert.equal(typeof parsedCheck.readiness.percentage, "number");
     assert.equal(parsedCheck.checks.some((entry) => entry.name === "package.exists"), true);
   } finally {
     await rm(cwd, { recursive: true, force: true });

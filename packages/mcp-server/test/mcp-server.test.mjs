@@ -256,8 +256,10 @@ test("release MCP tools generate metadata and reports", async () => {
     assert.equal(metadata.status, "ok");
     assert.equal(metadata.data.files.some((file) => file.endsWith("chrome/description.md")), true);
     assert.equal(check.status, "ok");
+    assert.equal(typeof check.data.readiness.percentage, "number");
     assert.equal(check.data.checks.some((entry) => entry.name === "package.exists"), true);
     assert.equal(report.status, "ok");
+    assert.equal(typeof report.data.publishCheck.readiness.percentage, "number");
     assert.equal(report.data.files.markdown.endsWith("release-report.md"), true);
     assert.match(description, /MCP fixture description/);
     assert.match(markdown, /Release Report/);

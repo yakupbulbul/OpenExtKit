@@ -12,9 +12,43 @@ export type PublishCheck = {
   target?: BrowserTarget;
 };
 
+export type StoreReadinessCategory =
+  | "metadata"
+  | "assets"
+  | "permissionsPrivacy"
+  | "package"
+  | "tests"
+  | "visual";
+
+export type StoreReadinessCategoryScore = {
+  category: StoreReadinessCategory;
+  score: number;
+  maxScore: number;
+  status: PublishCheckStatus;
+  checks: PublishCheck[];
+};
+
+export type StoreReadinessTargetScore = {
+  target: BrowserTarget;
+  score: number;
+  maxScore: number;
+  percentage: number;
+  status: PublishCheckStatus;
+  categories: StoreReadinessCategoryScore[];
+};
+
+export type StoreReadinessScore = {
+  score: number;
+  maxScore: number;
+  percentage: number;
+  status: PublishCheckStatus;
+  targets: StoreReadinessTargetScore[];
+};
+
 export type PublishCheckResult = {
   status: PublishCheckStatus;
   checks: PublishCheck[];
+  readiness: StoreReadinessScore;
 };
 
 export type StoreMetadataResult = {
@@ -40,23 +74,34 @@ export type ReleaseReport = {
 
 export async function runPublishCheck(project: OpenExtProject): Promise<PublishCheckResult> {
   const checks: PublishCheck[] = [];
+  const targetReadiness: StoreReadinessTargetScore[] = [];
 
   checks.push(check(Boolean(project.config.version), "version.present", "Project version is present."));
   checks.push(check(Boolean(project.config.description), "description.present", "Project description is present.", "Add description to openext.config before store submission."));
   checks.push(await checkRootFile(project, "README.md", "readme.exists", "README exists."));
   checks.push(await checkRootFile(project, "LICENSE", "license.exists", "License file exists."));
+  checks.push(await checkAnyRootFile(project, ["PRIVACY.md", "PRIVACY_POLICY.md", "privacy-policy.md"], "privacy.policy", "Privacy policy file exists.", "Add a privacy policy file before store submission.", "warning"));
 
   for (const target of project.enabledTargets) {
     const manifest = generateManifest(project, target);
     const permissions = inspectPermissions(project, target);
     const capabilities = getTarget(target);
+    const targetChecks: PublishCheck[] = [];
 
-    checks.push(check(Boolean(manifest.version), "manifest.version", "Manifest version is present.", "Manifest version is missing.", target));
-    checks.push(check(Boolean(manifest.icons), "manifest.icons", "Manifest icons are configured.", "Icons are not configured; stores usually require icon assets.", target, "warning"));
-    checks.push(await checkPackage(project, target));
-    checks.push(await checkReport(project, "manifest-report.json", "report.manifest", target));
-    checks.push(await checkReport(project, "permissions-report.json", "report.permissions", target));
-    checks.push(await checkReport(project, "test-report.json", "report.tests", target, "warning"));
+    targetChecks.push(check(Boolean(project.config.description), "description.present", "Project description is present.", "Add description to openext.config before store submission.", undefined, "warning"));
+    targetChecks.push(await checkStoreMetadata(project, target));
+    targetChecks.push(check(Boolean(manifest.version), "manifest.version", "Manifest version is present.", "Manifest version is missing.", target));
+    targetChecks.push(check(Boolean(manifest.icons), "manifest.icons", "Manifest icons are configured.", "Icons are not configured; stores usually require icon assets.", target, "warning"));
+    targetChecks.push(await checkVisualScreenshots(project, target));
+    targetChecks.push(await checkAnyRootFile(project, ["PRIVACY.md", "PRIVACY_POLICY.md", "privacy-policy.md"], "privacy.policy", "Privacy policy file exists.", "Add a privacy policy file before store submission.", "warning", target));
+    targetChecks.push(permissionRiskCheck(permissions, target));
+    targetChecks.push(await checkPackage(project, target));
+    targetChecks.push(await checkReport(project, "manifest-report.json", "report.manifest", target));
+    targetChecks.push(await checkReport(project, "permissions-report.json", "report.permissions", target));
+    targetChecks.push(await checkReport(project, "test-report.json", "report.tests", target, "warning"));
+    targetChecks.push(await checkVisualReport(project, target));
+
+    checks.push(...targetChecks);
 
     if (permissions.permissions.length > 0 || permissions.hostPermissions.length > 0) {
       checks.push(check(true, "permissions.explained", "Permissions are available for store metadata.", undefined, target));
@@ -79,11 +124,16 @@ export async function runPublishCheck(project: OpenExtProject): Promise<PublishC
         target
       });
     }
+
+    targetReadiness.push(scoreTargetReadiness(target, targetChecks));
   }
+
+  const readiness = scoreStoreReadiness(targetReadiness);
 
   return {
     status: summarizeStatus(checks),
-    checks
+    checks,
+    readiness
   };
 }
 
@@ -152,8 +202,68 @@ async function checkReport(project: OpenExtProject, fileName: string, name: stri
   return check(await exists(path), name, `${fileName} exists.`, `${fileName} is missing.`, target, missingStatus);
 }
 
+async function checkVisualReport(project: OpenExtProject, target: BrowserTarget): Promise<PublishCheck> {
+  const path = join(project.rootDir, "dist", "reports", "visual-test-report.json");
+  return check(await exists(path), "visual.report", `Visual test report exists for ${target}.`, "visual-test-report.json is missing.", target, "warning");
+}
+
+async function checkVisualScreenshots(project: OpenExtProject, target: BrowserTarget): Promise<PublishCheck> {
+  const path = join(project.rootDir, "dist", "reports", "visual", target);
+  return check(await exists(path, "directory"), "visual.screenshots", `Visual screenshots exist for ${target}.`, `Visual screenshots are missing for ${target}.`, target, "warning");
+}
+
+async function checkStoreMetadata(project: OpenExtProject, target: BrowserTarget): Promise<PublishCheck> {
+  const path = join(project.rootDir, "dist", "store", target);
+  return check(await exists(path, "directory"), "store.metadata", `Store metadata exists for ${target}.`, `Store metadata is missing for ${target}. Run openext store-assets.`, target, "warning");
+}
+
 async function checkRootFile(project: OpenExtProject, fileName: string, name: string, okMessage: string): Promise<PublishCheck> {
   return check(await exists(join(project.rootDir, fileName)), name, okMessage, `${fileName} is missing.`);
+}
+
+async function checkAnyRootFile(
+  project: OpenExtProject,
+  fileNames: string[],
+  name: string,
+  okMessage: string,
+  failMessage: string,
+  missingStatus: PublishCheckStatus,
+  target?: BrowserTarget
+): Promise<PublishCheck> {
+  for (const fileName of fileNames) {
+    if (await exists(join(project.rootDir, fileName))) {
+      return check(true, name, okMessage, failMessage, target, missingStatus);
+    }
+  }
+
+  return check(false, name, okMessage, failMessage, target, missingStatus);
+}
+
+function permissionRiskCheck(permissions: ReturnType<typeof inspectPermissions>, target: BrowserTarget): PublishCheck {
+  if (permissions.findings.some((finding) => finding.level === "error")) {
+    return {
+      name: "permissions.risk",
+      status: "failed",
+      message: "Permission findings include errors.",
+      target
+    };
+  }
+
+  if (permissions.findings.some((finding) => finding.level === "warning")) {
+    return {
+      name: "permissions.risk",
+      status: "warning",
+      message: "Permission findings include warnings that need store copy.",
+      target
+    };
+  }
+
+  return {
+    name: "permissions.risk",
+    status: "passed",
+    message: "Permission risk is low.",
+    target
+  };
 }
 
 function check(condition: boolean, name: string, okMessage: string, failMessage = okMessage, target?: BrowserTarget, missingStatus: PublishCheckStatus = "failed"): PublishCheck {
@@ -163,6 +273,75 @@ function check(condition: boolean, name: string, okMessage: string, failMessage 
     message: condition ? okMessage : failMessage,
     target
   };
+}
+
+const readinessCategories: Array<{ category: StoreReadinessCategory; checks: string[] }> = [
+  { category: "metadata", checks: ["description.present", "store.metadata"] },
+  { category: "assets", checks: ["manifest.icons", "visual.screenshots"] },
+  { category: "permissionsPrivacy", checks: ["privacy.policy", "permissions.risk"] },
+  { category: "package", checks: ["package.exists"] },
+  { category: "tests", checks: ["report.tests"] },
+  { category: "visual", checks: ["visual.report"] }
+];
+
+function scoreTargetReadiness(target: BrowserTarget, checks: PublishCheck[]): StoreReadinessTargetScore {
+  const categories = readinessCategories.map(({ category, checks: checkNames }) => {
+    const categoryChecks = checks.filter((check) => checkNames.includes(check.name));
+    const maxScore = categoryChecks.length * 10;
+    const score = categoryChecks.reduce((total, check) => total + scoreCheck(check), 0);
+
+    return {
+      category,
+      score,
+      maxScore,
+      status: summarizeStatus(categoryChecks),
+      checks: categoryChecks
+    };
+  });
+  const score = categories.reduce((total, category) => total + category.score, 0);
+  const maxScore = categories.reduce((total, category) => total + category.maxScore, 0);
+
+  return {
+    target,
+    score,
+    maxScore,
+    percentage: percentage(score, maxScore),
+    status: summarizeStatus(checks),
+    categories
+  };
+}
+
+function scoreStoreReadiness(targets: StoreReadinessTargetScore[]): StoreReadinessScore {
+  const score = targets.reduce((total, target) => total + target.score, 0);
+  const maxScore = targets.reduce((total, target) => total + target.maxScore, 0);
+
+  return {
+    score,
+    maxScore,
+    percentage: percentage(score, maxScore),
+    status: summarizeStatus(targets.map((target) => ({ name: target.target, status: target.status, message: `${target.percentage}%` }))),
+    targets
+  };
+}
+
+function scoreCheck(check: PublishCheck): number {
+  if (check.status === "passed") {
+    return 10;
+  }
+
+  if (check.status === "warning") {
+    return 5;
+  }
+
+  return 0;
+}
+
+function percentage(score: number, maxScore: number): number {
+  if (maxScore === 0) {
+    return 100;
+  }
+
+  return Math.round((score / maxScore) * 100);
 }
 
 function summarizeStatus(checks: PublishCheck[]): PublishCheckStatus {
@@ -177,9 +356,10 @@ function summarizeStatus(checks: PublishCheck[]): PublishCheckStatus {
   return "passed";
 }
 
-async function exists(path: string): Promise<boolean> {
+async function exists(path: string, kind: "file" | "directory" = "file"): Promise<boolean> {
   try {
-    return (await stat(path)).isFile();
+    const result = await stat(path);
+    return kind === "file" ? result.isFile() : result.isDirectory();
   } catch {
     return false;
   }
@@ -229,8 +409,11 @@ function releaseReportMarkdown(report: ReleaseReport): string {
   const checks = report.publishCheck.checks
     .map((check) => `- ${check.status.toUpperCase()} ${check.target ? `[${check.target}] ` : ""}${check.name}: ${check.message}`)
     .join("\n");
+  const readiness = report.publishCheck.readiness.targets
+    .map((target) => `- ${target.target}: ${target.percentage}% (${target.score}/${target.maxScore}, ${target.status})`)
+    .join("\n");
 
-  return `# Release Report\n\nProject: ${report.project.name}\nVersion: ${report.project.version}\nStatus: ${report.publishCheck.status}\nGenerated: ${report.generatedAt}\n\n## Checks\n\n${checks}\n`;
+  return `# Release Report\n\nProject: ${report.project.name}\nVersion: ${report.project.version}\nStatus: ${report.publishCheck.status}\nStore readiness: ${report.publishCheck.readiness.percentage}% (${report.publishCheck.readiness.score}/${report.publishCheck.readiness.maxScore})\nGenerated: ${report.generatedAt}\n\n## Store Readiness\n\n${readiness}\n\n## Checks\n\n${checks}\n`;
 }
 
 function slugify(value: string): string {

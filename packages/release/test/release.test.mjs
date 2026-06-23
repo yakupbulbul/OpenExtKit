@@ -56,6 +56,8 @@ test("runPublishCheck reports missing packages and permission warnings", async (
     const result = await runPublishCheck(project);
 
     assert.equal(result.status, "failed");
+    assert.equal(result.readiness.targets.length, 3);
+    assert.equal(result.readiness.percentage < 100, true);
     assert.equal(result.checks.some((check) => check.name === "package.exists" && check.status === "failed"), true);
     assert.equal(result.checks.some((check) => check.name === "privacy.warning"), true);
   } finally {
@@ -73,8 +75,34 @@ test("createReleaseReport writes markdown and json reports", async () => {
     const json = JSON.parse(await readFile(join(cwd, "dist/reports/release-report.json"), "utf8"));
 
     assert.match(markdown, /Release Report/);
+    assert.match(markdown, /Store Readiness/);
     assert.equal(json.project.name, "Release Fixture");
+    assert.equal(typeof json.publishCheck.readiness.percentage, "number");
     assert.equal(report.files.markdown.endsWith("release-report.md"), true);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("store readiness score improves with generated artifacts", async () => {
+  const cwd = await createProject();
+
+  try {
+    await mkdir(join(cwd, "dist/packages"), { recursive: true });
+    await mkdir(join(cwd, "dist/reports/visual/chrome"), { recursive: true });
+    await writeFile(join(cwd, "PRIVACY.md"), "# Privacy\n");
+    await writeFile(join(cwd, "dist/packages/release-fixture-chrome.zip"), "zip\n");
+    await writeFile(join(cwd, "dist/reports/test-report.json"), "{}\n");
+    await writeFile(join(cwd, "dist/reports/visual-test-report.json"), "{}\n");
+
+    const project = await resolveOpenExtProject(cwd);
+    await generateStoreMetadata(project);
+    const result = await runPublishCheck(project);
+    const chrome = result.readiness.targets.find((target) => target.target === "chrome");
+
+    assert.equal(chrome.score > 0, true);
+    assert.equal(chrome.categories.some((category) => category.category === "package" && category.status === "passed"), true);
+    assert.equal(chrome.categories.some((category) => category.category === "visual" && category.status === "passed"), true);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
