@@ -12,7 +12,13 @@ export const templateNames = [
   "tab-manager",
   "local-productivity-blocker",
   "new-tab-dashboard",
-  "context-menu-tool"
+  "context-menu-tool",
+  "tab-organizer",
+  "bookmark-manager",
+  "web-clipper",
+  "shopping-assistant",
+  "passwordless-auth-helper",
+  "developer-inspector"
 ] as const;
 
 export type TemplateName = (typeof templateNames)[number];
@@ -25,7 +31,19 @@ export type TemplateFile = {
 export type ExtensionTemplate = {
   name: TemplateName;
   description: string;
+  metadata: TemplateMetadata;
   files: TemplateFile[];
+};
+
+export type TemplateMetadata = {
+  name: TemplateName;
+  description: string;
+  category: string;
+  tags: string[];
+  targetUseCase: string;
+  entrypoints: string[];
+  permissions: string[];
+  previewAsset: string;
 };
 
 type CreateTemplateOptions = {
@@ -121,7 +139,57 @@ export function getTemplate(name: TemplateName, options: CreateTemplateOptions):
         permissions: ["storage", "contextMenus", "activeTab"],
         hostPermissions: ["<all_urls>"]
       });
+    case "tab-organizer":
+      return createTemplate(name, "Tab organizer extension starter.", options, {
+        background: true,
+        popup: "vanilla",
+        feature: "tab-manager",
+        permissions: ["storage", "tabs"]
+      });
+    case "bookmark-manager":
+      return createTemplate(name, "Bookmark manager extension starter.", options, {
+        background: true,
+        popup: "vanilla",
+        permissions: ["storage", "bookmarks"]
+      });
+    case "web-clipper":
+      return createTemplate(name, "Web clipper extension starter.", options, {
+        background: true,
+        popup: "vanilla",
+        contentScript: true,
+        feature: "context-menu-tool",
+        permissions: ["storage", "contextMenus", "activeTab"],
+        hostPermissions: ["<all_urls>"]
+      });
+    case "shopping-assistant":
+      return createTemplate(name, "Shopping assistant extension starter.", options, {
+        background: true,
+        popup: "vanilla",
+        contentScript: true,
+        feature: "ai-sidebar",
+        permissions: ["storage", "activeTab"],
+        hostPermissions: ["https://*/*"]
+      });
+    case "passwordless-auth-helper":
+      return createTemplate(name, "Passwordless auth helper extension starter.", options, {
+        background: true,
+        popup: "vanilla",
+        permissions: ["storage", "identity"]
+      });
+    case "developer-inspector":
+      return createTemplate(name, "Developer inspector extension starter.", options, {
+        background: true,
+        popup: "vanilla",
+        contentScript: true,
+        feature: "command-palette",
+        permissions: ["storage", "tabs", "scripting"],
+        hostPermissions: ["<all_urls>"]
+      });
   }
+}
+
+export function listTemplateMetadata(): TemplateMetadata[] {
+  return templateNames.map((name) => getTemplateMetadata(name));
 }
 
 export async function writeTemplate(options: WriteTemplateOptions): Promise<ExtensionTemplate> {
@@ -231,8 +299,79 @@ function createTemplate(
   return {
     name,
     description,
+    metadata: getTemplateMetadata(name, flags, description),
     files
   };
+}
+
+function getTemplateMetadata(name: TemplateName, flags?: TemplateFlags, description = defaultTemplateDescription(name)): TemplateMetadata {
+  const entrypoints = [
+    flags?.background ? "background" : undefined,
+    flags?.popup ? "popup" : undefined,
+    flags?.newTab ? "new-tab" : undefined,
+    flags?.contentScript ? "content-script" : undefined
+  ].filter((entry): entry is string => Boolean(entry));
+
+  return {
+    name,
+    description,
+    category: templateCategory(name),
+    tags: templateTags(name),
+    targetUseCase: templateUseCase(name),
+    entrypoints,
+    permissions: flags?.permissions ?? templatePermissions(name),
+    previewAsset: `previews/${name}.png`
+  };
+}
+
+function defaultTemplateDescription(name: TemplateName): string {
+  return `${toTitle(name)} extension starter.`;
+}
+
+function templateCategory(name: TemplateName): string {
+  if (["ai-sidebar", "shopping-assistant"].includes(name)) {
+    return "ai";
+  }
+  if (["tab-manager", "tab-organizer", "bookmark-manager", "new-tab", "new-tab-dashboard"].includes(name)) {
+    return "productivity";
+  }
+  if (["developer-inspector", "command-palette"].includes(name)) {
+    return "developer-tools";
+  }
+  return "starter";
+}
+
+function templateTags(name: TemplateName): string[] {
+  return name.split("-").filter(Boolean);
+}
+
+function templateUseCase(name: TemplateName): string {
+  const uses: Partial<Record<TemplateName, string>> = {
+    "tab-organizer": "Organize and inspect open tabs from a popup.",
+    "bookmark-manager": "Manage browser bookmarks from an extension surface.",
+    "web-clipper": "Capture selected page content into local extension storage.",
+    "shopping-assistant": "Overlay shopping guidance on supported pages.",
+    "passwordless-auth-helper": "Prototype identity and passwordless sign-in helper flows.",
+    "developer-inspector": "Inspect pages with command-palette and content-script tools."
+  };
+  return uses[name] ?? defaultTemplateDescription(name);
+}
+
+function templatePermissions(name: TemplateName): string[] {
+  const permissions: Partial<Record<TemplateName, string[]>> = {
+    "ai-sidebar": ["storage", "activeTab"],
+    "command-palette": ["storage", "commands"],
+    "tab-manager": ["storage", "tabs"],
+    "context-menu-tool": ["storage", "contextMenus", "activeTab"],
+    "tab-organizer": ["storage", "tabs"],
+    "bookmark-manager": ["storage", "bookmarks"],
+    "web-clipper": ["storage", "contextMenus", "activeTab"],
+    "shopping-assistant": ["storage", "activeTab"],
+    "passwordless-auth-helper": ["storage", "identity"],
+    "developer-inspector": ["storage", "tabs", "scripting"]
+  };
+
+  return permissions[name] ?? ["storage"];
 }
 
 function packageJson(projectName: string, react: boolean): string {

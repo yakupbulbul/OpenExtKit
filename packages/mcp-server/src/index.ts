@@ -32,7 +32,7 @@ import {
   generateStoreMetadata,
   runPublishCheck
 } from "@openextkit/release";
-import { templateNames, writeTemplate } from "@openextkit/templates";
+import { listTemplateMetadata, templateNames, writeTemplate } from "@openextkit/templates";
 import {
   applyVisualRegression,
   runAllBrowserSmokeTests,
@@ -313,7 +313,7 @@ export function createOpenExtMcpTools(): McpToolDefinition[] {
       name: "list_templates",
       description: "List available OpenExtKit project templates.",
       inputSchema: {},
-      handler: wrapTool("list_templates", async () => ({ templates: templateNames }))
+      handler: wrapTool("list_templates", async () => ({ templates: listTemplateMetadata() }))
     },
     {
       name: "list_browser_targets",

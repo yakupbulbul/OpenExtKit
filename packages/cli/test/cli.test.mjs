@@ -261,6 +261,13 @@ test("targets commands expose browser capabilities", async () => {
   assert.match(inspect.stdout, /supportsManifestV3/);
 });
 
+test("templates command exposes marketplace metadata", async () => {
+  const result = await runCli(["templates", "--json"]);
+  const parsed = JSON.parse(result.stdout);
+
+  assert.equal(parsed.templates.some((entry) => entry.name === "web-clipper" && entry.category), true);
+});
+
 test("release commands write publish readiness artifacts", async () => {
   const cwd = await createConfiguredProject();
 

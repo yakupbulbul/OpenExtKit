@@ -29,7 +29,7 @@ import {
   runBrowserVisualTest,
   startBrowserDevSession
 } from "@openextkit/testing";
-import { isTemplateName, templateNames, writeTemplate } from "@openextkit/templates";
+import { isTemplateName, listTemplateMetadata, templateNames, writeTemplate } from "@openextkit/templates";
 import { cac } from "cac";
 
 const execFileAsync = promisify(execFile);
@@ -133,6 +133,13 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
       packageFormat: entry.packageFormat
     })));
   });
+
+  cli
+    .command("templates", "List available project templates")
+    .option("--json", "Print JSON output")
+    .action((options: JsonOption) => {
+      printResult({ templates: listTemplateMetadata() }, options.json);
+    });
 
   cli
     .command("doctor", "Check local OpenExtKit project setup")

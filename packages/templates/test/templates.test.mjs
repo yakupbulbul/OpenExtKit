@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { loadOpenExtConfig, resolveOpenExtProject } from "@openextkit/core";
 import { generateManifest } from "@openextkit/manifest";
-import { templateNames, writeTemplate } from "../dist/index.js";
+import { listTemplateMetadata, templateNames, writeTemplate } from "../dist/index.js";
 
 async function createTemplateProject(template) {
   const cwd = await mkdtemp(join(tmpdir(), `openext-template-${template}-`));
@@ -34,9 +34,11 @@ for (const template of templateNames) {
     try {
       const config = await readFile(join(cwd, "openext.config.ts"), "utf8");
       const packageJson = await readFile(join(cwd, "package.json"), "utf8");
+      const metadata = listTemplateMetadata().find((entry) => entry.name === template);
 
       assert.match(config, /defineOpenExtConfig/);
       assert.match(packageJson, new RegExp(`${template}-example`));
+      assert.equal(typeof metadata.category, "string");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -59,3 +61,10 @@ for (const template of templateNames) {
     }
   });
 }
+
+test("template marketplace includes expanded template metadata", () => {
+  const metadata = listTemplateMetadata();
+
+  assert.equal(metadata.some((entry) => entry.name === "web-clipper" && entry.previewAsset.endsWith(".png")), true);
+  assert.equal(metadata.some((entry) => entry.name === "developer-inspector" && entry.permissions.includes("scripting")), true);
+});
