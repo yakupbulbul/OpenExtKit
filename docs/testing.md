@@ -37,3 +37,24 @@ openext visual chrome --compare --threshold 0.02
 ```
 
 Baselines are written to `dist/reports/visual-baselines/<target>/`, comparison JSON is written to `dist/reports/visual-regression-report.json`, and failed comparisons write current-image diff artifacts under `dist/reports/visual-diff/<target>/`.
+
+## Visual Recording
+
+Record real-browser captures and save them as baselines:
+
+```sh
+openext visual chrome --record
+```
+
+Recording requires the target executable env var. The command pauses briefly on each surface before capture so a developer can interact with the extension.
+
+## E2E Recipes
+
+Run deterministic built-in E2E recipe checks:
+
+```sh
+openext e2e chrome
+openext e2e chrome --recipe popup-render --json
+```
+
+Recipes cover popup render, options render, content script injection, storage roundtrip, runtime messaging, tab query, and context menu smoke. Reports are written to `dist/reports/e2e-report.json`.

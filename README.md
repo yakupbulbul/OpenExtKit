@@ -26,7 +26,9 @@ pnpm install
 pnpm exec openext build all
 pnpm exec openext doctor --target chrome
 pnpm exec openext test all
+pnpm exec openext e2e chrome
 pnpm exec openext package all
+pnpm exec openext review all
 pnpm exec openext release-report
 ```
 
@@ -51,6 +53,7 @@ Visual regression baselines are available with:
 ```sh
 openext visual chrome --update
 openext visual chrome --compare
+openext visual chrome --record
 ```
 
 Firefox and Safari visual loading are reported as unsupported capabilities for now; their generated outputs still participate in smoke, compatibility, and packaging checks.
@@ -65,13 +68,16 @@ Start the MCP server from a project workspace:
 node packages/cli/dist/index.js mcp
 ```
 
-Useful MCP tools include `build_all_targets`, `run_diagnostics`, `run_all_browser_tests`, `run_all_visual_tests`, `package_all_targets`, and `create_release_report`.
+Useful MCP tools include `build_all_targets`, `run_diagnostics`, `run_all_browser_tests`, `run_e2e_tests`, `run_all_visual_tests`, `visual_review`, `package_all_targets`, `review_extension`, and `create_release_report`.
 
 ## Developer Workflows
 
 - `openext dev chrome` builds the target, launches a persistent browser profile with the unpacked extension, opens the first popup/options surface when available, watches files, rebuilds, and reloads the extension.
+- `openext dashboard` serves a read-only local project dashboard for targets, reports, screenshots, and store readiness.
+- `openext review all --json` writes a deterministic agent-friendly review report.
 - `openext doctor --target chrome` reports target-specific configuration, manifest, permissions, package, report, store metadata, visual screenshot, and browser executable status.
-- `openext publish-check` and `openext release-report` include a store readiness score across metadata, assets, permissions/privacy, package, tests, and visual checks.
+- `openext publish-check`, `openext publish-wizard all`, and `openext release-report` include store readiness and ordered publishing fixes.
+- `openext compat fix firefox --dry-run` suggests compatibility patches without editing files.
 - Rich templates are available with `openext init my-extension --template ai-sidebar`, `command-palette`, `tab-manager`, `local-productivity-blocker`, `new-tab-dashboard`, and `context-menu-tool`.
 
 More details are in `docs/development.md`, `docs/testing.md`, `docs/templates.md`, `docs/browser-support.md`, `docs/publishing.md`, and `docs/mcp-tools.md`.
@@ -117,6 +123,17 @@ OpenExtKit is a pnpm and Turborepo monorepo made of small packages:
 - Phase 20: store readiness scoring in publish and release reports.
 - Phase 21: richer AI sidebar, command palette, tab manager, productivity blocker, new tab dashboard, and context menu templates.
 - Phase 22: content script visual testing on deterministic test pages.
+- Phase 23: documentation for expanded extension workflows.
+- Phase 24: read-only local project dashboard.
+- Phase 25: deterministic review reports with CLI and MCP access.
+- Phase 26: expanded store metadata drafts.
+- Phase 27: permission risk advisor.
+- Phase 28: visual recording mode.
+- Phase 29: template marketplace metadata and additional templates.
+- Phase 30: non-interactive publish wizard report.
+- Phase 31: compatibility fix suggestions.
+- Phase 32: built-in E2E recipes.
+- Phase 33: MCP visual review tool.
 
 ## Status
 

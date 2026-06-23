@@ -35,3 +35,33 @@ General doctor checks remain available with:
 ```sh
 openext doctor --json
 ```
+
+## Dashboard and Review
+
+Serve a read-only local dashboard:
+
+```sh
+openext dashboard
+openext dashboard --host 127.0.0.1 --port 4217
+```
+
+The dashboard reads existing reports and screenshots from `dist/reports` and shows target status, manifest and permission summaries, store readiness, visual screenshots, and report links.
+
+Create an agent-friendly deterministic review:
+
+```sh
+openext review all
+openext review chrome --json
+```
+
+The review report is written to `dist/reports/review-report.json`.
+
+## Compatibility Suggestions
+
+Generate suggested compatibility fixes without editing files:
+
+```sh
+openext compat fix firefox --dry-run --json
+```
+
+Suggestions cover unsupported permissions/APIs, broad host patterns, disabled targets, and target capability mismatches.
