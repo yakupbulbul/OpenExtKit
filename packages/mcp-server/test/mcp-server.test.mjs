@@ -183,6 +183,29 @@ test("run_e2e_tests works", async () => {
   }
 });
 
+test("run_e2e_tests accepts recipe files", async () => {
+  const cwd = await createProject();
+  const previousMock = process.env.OPENEXTKIT_E2E_MOCK_BROWSER;
+  process.env.OPENEXTKIT_E2E_MOCK_BROWSER = "1";
+
+  try {
+    await runOpenExtMcpTool("build_all_targets", {}, { cwd });
+    const recipePath = join(cwd, "openext.e2e.json");
+    await writeFile(recipePath, JSON.stringify({ name: "popup-flow", steps: [{ action: "openPopup" }, { action: "expectText", text: "Popup" }] }));
+    const result = await runOpenExtMcpTool("run_e2e_tests", { target: "chrome", recipeFile: recipePath }, { cwd });
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.data.checks.some((check) => check.name === "e2e.popup-flow.step.2.expectText"), true);
+  } finally {
+    if (previousMock === undefined) {
+      delete process.env.OPENEXTKIT_E2E_MOCK_BROWSER;
+    } else {
+      process.env.OPENEXTKIT_E2E_MOCK_BROWSER = previousMock;
+    }
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("run_all_visual_tests reports missing executable clearly", async () => {
   const cwd = await createProject();
   const previousExecutable = process.env.OPENEXTKIT_CHROME_EXECUTABLE;

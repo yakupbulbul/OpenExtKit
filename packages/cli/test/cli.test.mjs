@@ -270,6 +270,26 @@ test("e2e command writes recipe report", async () => {
   }
 });
 
+test("e2e command accepts custom recipe files", async () => {
+  const cwd = await createConfiguredProject();
+
+  try {
+    await runCli(["build", "chrome"], { cwd });
+    const recipePath = join(cwd, "openext.e2e.json");
+    await writeFile(recipePath, JSON.stringify({ name: "popup-flow", steps: [{ action: "openPopup" }, { action: "expectText", text: "Popup" }] }));
+    const result = await runCli(["e2e", "chrome", "--recipe-file", recipePath, "--json"], {
+      cwd,
+      env: { OPENEXTKIT_E2E_MOCK_BROWSER: "1" }
+    });
+    const parsed = JSON.parse(result.stdout);
+
+    assert.equal(parsed.status, "passed");
+    assert.equal(parsed.checks.some((check) => check.name === "e2e.popup-flow.step.2.expectText"), true);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("visual all reports missing browser executable clearly", async () => {
   const cwd = await createConfiguredProject();
 

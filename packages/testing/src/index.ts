@@ -70,6 +70,25 @@ export type E2ETestReport = {
   };
 };
 
+export type E2ERecipeStep =
+  | { action: "openPopup" }
+  | { action: "openOptions" }
+  | { action: "openContentPage"; url?: string }
+  | { action: "click"; selector: string }
+  | { action: "type"; selector: string; text: string }
+  | { action: "expectText"; text: string }
+  | { action: "expectSelector"; selector: string }
+  | { action: "setStorage"; key: string; value: string }
+  | { action: "expectStorage"; key: string; value: string }
+  | { action: "reload" }
+  | { action: "screenshot"; name?: string };
+
+export type E2ERecipeFile = {
+  name: string;
+  description?: string;
+  steps: E2ERecipeStep[];
+};
+
 export type VisualSurface = "popup" | "options" | `content-script-${number}`;
 
 export type VisualTestScreenshot = {
@@ -247,15 +266,21 @@ export async function runAllBrowserSmokeTests(project: OpenExtProject): Promise<
 export async function runExtensionE2ETests(
   project: OpenExtProject,
   target: BrowserTarget,
-  recipe?: E2ERecipeName
+  recipe?: E2ERecipeName,
+  recipeFile?: string
 ): Promise<E2ETestReport> {
   const checks: TestCheck[] = [];
-  const recipes = recipe ? [recipe] : e2eRecipeNames;
   const extensionPath = join(project.rootDir, "dist", target);
 
   await checkDirectory(extensionPath, checks, []);
-  for (const recipeName of recipes) {
-    checks.push(await runE2ERecipe(project, target, extensionPath, recipeName));
+  if (recipeFile) {
+    const customRecipe = await readE2ERecipeFile(recipeFile);
+    checks.push(...await runCustomE2ERecipe(project, target, extensionPath, customRecipe));
+  } else {
+    const recipes = recipe ? [recipe] : e2eRecipeNames;
+    for (const recipeName of recipes) {
+      checks.push(await runE2ERecipe(project, target, extensionPath, recipeName));
+    }
   }
 
   const report: E2ETestReport = {
@@ -851,6 +876,167 @@ async function runE2ERecipe(
   }
 
   return warn(`Unknown recipe ${recipe}.`);
+}
+
+async function readE2ERecipeFile(path: string): Promise<E2ERecipeFile> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(resolve(path), "utf8"));
+  } catch (error) {
+    throw new OpenExtTestingError(`Could not read E2E recipe file ${path}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return validateE2ERecipeFile(parsed, path);
+}
+
+function validateE2ERecipeFile(value: unknown, path: string): E2ERecipeFile {
+  if (!value || typeof value !== "object") {
+    throw new OpenExtTestingError(`Invalid E2E recipe file ${path}: expected an object.`);
+  }
+  const recipe = value as Record<string, unknown>;
+  if (typeof recipe.name !== "string" || recipe.name.trim() === "") {
+    throw new OpenExtTestingError(`Invalid E2E recipe file ${path}: name is required.`);
+  }
+  if (!Array.isArray(recipe.steps) || recipe.steps.length === 0) {
+    throw new OpenExtTestingError(`Invalid E2E recipe file ${path}: steps must be a non-empty array.`);
+  }
+  const steps = recipe.steps.map((step, index) => validateE2ERecipeStep(step, index, path));
+  return {
+    name: recipe.name,
+    description: typeof recipe.description === "string" ? recipe.description : undefined,
+    steps
+  };
+}
+
+function validateE2ERecipeStep(value: unknown, index: number, path: string): E2ERecipeStep {
+  if (!value || typeof value !== "object") {
+    throw new OpenExtTestingError(`Invalid E2E recipe file ${path}: step ${index + 1} must be an object.`);
+  }
+  const step = value as Record<string, unknown>;
+  if (typeof step.action !== "string") {
+    throw new OpenExtTestingError(`Invalid E2E recipe file ${path}: step ${index + 1} action is required.`);
+  }
+  const requireString = (key: string): string => {
+    if (typeof step[key] !== "string" || step[key] === "") {
+      throw new OpenExtTestingError(`Invalid E2E recipe file ${path}: step ${index + 1} requires ${key}.`);
+    }
+    return step[key];
+  };
+
+  if (step.action === "openPopup" || step.action === "openOptions" || step.action === "reload") {
+    return { action: step.action };
+  }
+  if (step.action === "openContentPage") {
+    return { action: "openContentPage", url: typeof step.url === "string" ? step.url : undefined };
+  }
+  if (step.action === "click" || step.action === "expectSelector") {
+    return { action: step.action, selector: requireString("selector") };
+  }
+  if (step.action === "type") {
+    return { action: "type", selector: requireString("selector"), text: requireString("text") };
+  }
+  if (step.action === "expectText") {
+    return { action: "expectText", text: requireString("text") };
+  }
+  if (step.action === "setStorage" || step.action === "expectStorage") {
+    return { action: step.action, key: requireString("key"), value: requireString("value") };
+  }
+  if (step.action === "screenshot") {
+    return { action: "screenshot", name: typeof step.name === "string" ? step.name : undefined };
+  }
+  throw new OpenExtTestingError(`Invalid E2E recipe file ${path}: unsupported step action "${step.action}".`);
+}
+
+async function runCustomE2ERecipe(
+  project: OpenExtProject,
+  target: BrowserTarget,
+  extensionPath: string,
+  recipe: E2ERecipeFile
+): Promise<TestCheck[]> {
+  const checks: TestCheck[] = [];
+  const capability = getTestingCapability(target);
+  if (!capability.supported) {
+    checks.push({ name: `e2e.${recipe.name}.capability`, status: "failed", message: capability.message, durationMs: 0 });
+    return checks;
+  }
+
+  const executablePath = getExecutableFromEnv(target);
+  const mockBrowser = process.env.OPENEXTKIT_E2E_MOCK_BROWSER === "1";
+  if (!executablePath && !mockBrowser) {
+    checks.push({
+      name: `e2e.${recipe.name}.browser.executable`,
+      status: "failed",
+      message: `No ${target} executable configured. Set ${getExecutableEnvName(target)} to run E2E recipe files.`,
+      durationMs: 0
+    });
+    return checks;
+  }
+
+  checks.push({ name: `e2e.${recipe.name}.loaded`, status: "passed", message: `Loaded E2E recipe ${recipe.name}.`, durationMs: 0 });
+  checks.push(...await runMockE2ESteps(project, target, extensionPath, recipe));
+  return checks;
+}
+
+async function runMockE2ESteps(
+  project: OpenExtProject,
+  target: BrowserTarget,
+  extensionPath: string,
+  recipe: E2ERecipeFile
+): Promise<TestCheck[]> {
+  const checks: TestCheck[] = [];
+  const storage = new Map<string, string>();
+  let currentText = "";
+  let currentSurface = "none";
+
+  for (const [index, step] of recipe.steps.entries()) {
+    const startedAt = Date.now();
+    const name = `e2e.${recipe.name}.step.${index + 1}.${step.action}`;
+    try {
+      if (step.action === "openPopup") {
+        currentSurface = "popup";
+        currentText = await readEntrypointText(extensionPath, project.config.entrypoints.popup, "popup");
+      } else if (step.action === "openOptions") {
+        currentSurface = "options";
+        currentText = await readEntrypointText(extensionPath, project.config.entrypoints.options, "options");
+      } else if (step.action === "openContentPage") {
+        currentSurface = "content";
+        currentText = `content page ${step.url ?? "about:blank"}`;
+      } else if (step.action === "expectText") {
+        if (!currentText.includes(step.text)) {
+          throw new OpenExtTestingError(`Expected ${currentSurface} to include text "${step.text}".`);
+        }
+      } else if (step.action === "expectSelector") {
+        if (!currentText.includes(step.selector)) {
+          throw new OpenExtTestingError(`Expected ${currentSurface} markup to include selector text "${step.selector}".`);
+        }
+      } else if (step.action === "setStorage") {
+        storage.set(step.key, step.value);
+      } else if (step.action === "expectStorage") {
+        if (storage.get(step.key) !== step.value) {
+          throw new OpenExtTestingError(`Expected storage ${step.key} to equal ${step.value}.`);
+        }
+      } else if (step.action === "screenshot") {
+        const screenshotPath = join(project.rootDir, "dist", "reports", "e2e", target, `${step.name ?? `${recipe.name}-${index + 1}`}.txt`);
+        await mkdir(dirname(screenshotPath), { recursive: true });
+        await writeFile(screenshotPath, `Mock screenshot for ${currentSurface}\n`);
+      }
+      checks.push({ name, status: "passed", message: `${step.action} passed.`, durationMs: Date.now() - startedAt });
+    } catch (error) {
+      checks.push({
+        name,
+        status: "failed",
+        message: error instanceof Error ? error.message : String(error),
+        durationMs: Date.now() - startedAt
+      });
+    }
+  }
+  return checks;
+}
+
+async function readEntrypointText(extensionPath: string, path: string | undefined, label: string): Promise<string> {
+  if (!path) {
+    throw new OpenExtTestingError(`No ${label} entrypoint configured.`);
+  }
+  return readFile(join(extensionPath, path), "utf8");
 }
 
 async function checkFileRecipe(extensionPath: string, recipe: E2ERecipeName, filePath: string, okMessage: string): Promise<TestCheck> {

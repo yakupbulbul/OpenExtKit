@@ -293,13 +293,13 @@ export function createOpenExtMcpTools(): McpToolDefinition[] {
     },
     {
       name: "run_e2e_tests",
-      description: "Run built-in deterministic extension E2E recipes for one browser target.",
-      inputSchema: { projectPath: projectPathSchema, target: targetSchema, recipe: e2eRecipeSchema },
+      description: "Run built-in or JSON-file deterministic extension E2E recipes for one browser target.",
+      inputSchema: { projectPath: projectPathSchema, target: targetSchema, recipe: e2eRecipeSchema, recipeFile: z.string().optional() },
       handler: wrapTool("run_e2e_tests", async (input, context) => {
         const project = await resolveProject(context, readProjectPath(input));
         assertAllowedProject(project, context);
         const recipe = typeof input.recipe === "string" ? input.recipe as (typeof e2eRecipeNames)[number] : undefined;
-        return runExtensionE2ETests(project, readTarget(input), recipe);
+        return runExtensionE2ETests(project, readTarget(input), recipe, typeof input.recipeFile === "string" ? input.recipeFile : undefined);
       }, ["dist/reports/e2e-report.json"])
     },
     {

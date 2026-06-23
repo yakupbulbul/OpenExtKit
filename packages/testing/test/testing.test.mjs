@@ -188,6 +188,68 @@ test("E2E recipes write a structured report", async () => {
   }
 });
 
+test("custom E2E recipe file runs deterministic steps", async () => {
+  const cwd = await createProject({ targets: { chrome: {} } });
+  const previousMock = process.env.OPENEXTKIT_E2E_MOCK_BROWSER;
+  process.env.OPENEXTKIT_E2E_MOCK_BROWSER = "1";
+
+  try {
+    const recipePath = join(cwd, "recipe.json");
+    await writeFile(
+      recipePath,
+      JSON.stringify({
+        name: "popup-flow",
+        steps: [
+          { action: "openPopup" },
+          { action: "expectText", text: "Popup" },
+          { action: "setStorage", key: "seen", value: "yes" },
+          { action: "expectStorage", key: "seen", value: "yes" },
+          { action: "screenshot", name: "popup" }
+        ]
+      })
+    );
+    const project = await resolveOpenExtProject(cwd);
+    const report = await runExtensionE2ETests(project, "chrome", undefined, recipePath);
+
+    assert.equal(report.status, "passed");
+    assert.equal(report.checks.some((check) => check.name === "e2e.popup-flow.step.2.expectText"), true);
+    await readFile(join(cwd, "dist/reports/e2e/chrome/popup.txt"), "utf8");
+  } finally {
+    if (previousMock === undefined) {
+      delete process.env.OPENEXTKIT_E2E_MOCK_BROWSER;
+    } else {
+      process.env.OPENEXTKIT_E2E_MOCK_BROWSER = previousMock;
+    }
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("custom E2E recipe file validates schema and unsupported targets", async () => {
+  const cwd = await createProject({ targets: { firefox: {} } });
+  const previousMock = process.env.OPENEXTKIT_E2E_MOCK_BROWSER;
+  process.env.OPENEXTKIT_E2E_MOCK_BROWSER = "1";
+
+  try {
+    const invalidRecipePath = join(cwd, "invalid.json");
+    await writeFile(invalidRecipePath, JSON.stringify({ name: "bad", steps: [{ action: "click" }] }));
+    const project = await resolveOpenExtProject(cwd);
+    await assert.rejects(() => runExtensionE2ETests(project, "firefox", undefined, invalidRecipePath), /requires selector/);
+
+    const recipePath = join(cwd, "recipe.json");
+    await writeFile(recipePath, JSON.stringify({ name: "firefox-flow", steps: [{ action: "openContentPage" }] }));
+    const report = await runExtensionE2ETests(project, "firefox", undefined, recipePath);
+    assert.equal(report.status, "failed");
+    assert.match(report.checks.map((check) => check.message).join("\n"), /Firefox fallback/);
+  } finally {
+    if (previousMock === undefined) {
+      delete process.env.OPENEXTKIT_E2E_MOCK_BROWSER;
+    } else {
+      process.env.OPENEXTKIT_E2E_MOCK_BROWSER = previousMock;
+    }
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("visual test fails clearly when no browser executable is configured", async () => {
   const cwd = await createProject({ targets: { chrome: {} } });
   const previousExecutable = process.env.OPENEXTKIT_CHROME_EXECUTABLE;

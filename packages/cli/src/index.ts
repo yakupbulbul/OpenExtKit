@@ -122,11 +122,12 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   cli
     .command("e2e <target>", "Run built-in extension E2E recipes")
     .option("--recipe <name>", "Run one built-in recipe")
+    .option("--recipe-file <path>", "Run a custom JSON E2E recipe file")
     .option("--json", "Print JSON output")
-    .action(async (target: string, options: JsonOption & { recipe?: string }) => {
+    .action(async (target: string, options: JsonOption & { recipe?: string; recipeFile?: string }) => {
       const project = await resolveOpenExtProject(process.cwd());
       const recipe = options.recipe ? parseE2ERecipe(options.recipe) : undefined;
-      const report = await runExtensionE2ETests(project, parseTarget(target), recipe);
+      const report = await runExtensionE2ETests(project, parseTarget(target), recipe, options.recipeFile);
       printResult(report, options.json);
     });
 
