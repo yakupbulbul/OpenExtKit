@@ -116,6 +116,7 @@ test("creates permission report warnings", () => {
 
   assert.equal(report.findings.some((finding) => finding.code === "permission.tabs"), true);
   assert.equal(report.findings.some((finding) => finding.code === "permission.scripting"), true);
+  assert.equal(report.advisor.some((entry) => entry.permission === "tabs" && entry.lowerRiskAlternative), true);
 });
 
 test("warns for broad host permissions", () => {

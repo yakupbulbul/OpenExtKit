@@ -55,6 +55,16 @@ export type PermissionAudit = {
   optionalPermissions: string[];
   hostPermissions: string[];
   findings: PermissionFinding[];
+  advisor: PermissionAdvice[];
+};
+
+export type PermissionAdvice = {
+  permission: string;
+  risk: "low" | "medium" | "high";
+  reason: string;
+  targetSupport: string;
+  lowerRiskAlternative?: string;
+  storeReviewGuidance: string;
 };
 
 export type ManifestValidationResult = {
@@ -216,8 +226,10 @@ export function inspectPermissions(project: OpenExtProject, target: BrowserTarge
 
   const { permissions } = project.config;
   const findings: PermissionFinding[] = [];
+  const advisor: PermissionAdvice[] = [];
 
   for (const permission of permissions.required) {
+    advisor.push(adviceForPermission(permission, target));
     if (permission === "tabs") {
       findings.push({
         level: "warning",
@@ -238,6 +250,7 @@ export function inspectPermissions(project: OpenExtProject, target: BrowserTarge
   }
 
   for (const hostPermission of permissions.host) {
+    advisor.push(adviceForHostPermission(hostPermission, target));
     if (!isValidHostPattern(hostPermission)) {
       findings.push({
         level: "error",
@@ -263,7 +276,52 @@ export function inspectPermissions(project: OpenExtProject, target: BrowserTarge
     permissions: [...permissions.required],
     optionalPermissions: [...permissions.optional],
     hostPermissions: [...permissions.host],
-    findings
+    findings,
+    advisor
+  };
+}
+
+function adviceForPermission(permission: string, target: BrowserTarget): PermissionAdvice {
+  if (permission === "tabs") {
+    return {
+      permission,
+      risk: "medium",
+      reason: "Tabs can expose browsing metadata such as URLs and titles.",
+      targetSupport: `${target} supports this permission when declared in the manifest.`,
+      lowerRiskAlternative: "Use activeTab when access is only needed after a user gesture.",
+      storeReviewGuidance: "Explain why tab metadata is required and where it is used."
+    };
+  }
+
+  if (permission === "scripting") {
+    return {
+      permission,
+      risk: "high",
+      reason: "Scripting can execute code in pages and increases review scrutiny.",
+      targetSupport: `${target} supports scripting in Manifest V3 where available.`,
+      lowerRiskAlternative: "Prefer static content scripts with narrow match patterns.",
+      storeReviewGuidance: "Document the exact scripts injected and the user action that triggers them."
+    };
+  }
+
+  return {
+    permission,
+    risk: "low",
+    reason: "No elevated OpenExtKit risk rule matched this permission.",
+    targetSupport: `${target} manifest generation includes this permission as configured.`,
+    storeReviewGuidance: "Keep the store explanation aligned with the feature that uses this permission."
+  };
+}
+
+function adviceForHostPermission(permission: string, target: BrowserTarget): PermissionAdvice {
+  const broad = isBroadHostPattern(permission);
+  return {
+    permission,
+    risk: broad ? "high" : "medium",
+    reason: broad ? "Broad host access can read or modify many sites." : "Host access allows the extension to interact with matching pages.",
+    targetSupport: `${target} validates this as a host permission pattern when it matches browser syntax.`,
+    lowerRiskAlternative: broad ? "Use exact HTTPS origins or optional host permissions where possible." : "Use the narrowest URL pattern that covers the feature.",
+    storeReviewGuidance: broad ? "Provide a clear, user-facing reason for broad host access." : "Explain what page data is accessed on the matched hosts."
   };
 }
 

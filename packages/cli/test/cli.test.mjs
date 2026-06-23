@@ -150,10 +150,11 @@ test("inspect permissions works", async () => {
   const cwd = await createConfiguredProject();
 
   try {
-    const result = await runCli(["inspect", "permissions", "chrome", "--json"], { cwd });
+    const result = await runCli(["inspect", "permissions", "chrome", "--advisor", "--json"], { cwd });
     const report = JSON.parse(result.stdout);
 
     assert.equal(report.findings.some((finding) => finding.code === "permission.tabs"), true);
+    assert.equal(report.advisor.some((entry) => entry.permission === "tabs"), true);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

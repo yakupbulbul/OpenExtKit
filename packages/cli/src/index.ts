@@ -61,6 +61,10 @@ type DashboardOptions = {
   host?: string;
 };
 
+type InspectOptions = JsonOption & {
+  advisor?: boolean;
+};
+
 export async function runCli(argv: string[] = process.argv): Promise<void> {
   const cli = cac("openext");
 
@@ -140,7 +144,8 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   cli
     .command("inspect <kind> [target]", "Print generated manifest or permission audit")
     .option("--json", "Print JSON output")
-    .action(async (kind: string, target: string | undefined, options: JsonOption) => {
+    .option("--advisor", "Include permission risk advisor output")
+    .action(async (kind: string, target: string | undefined, options: InspectOptions) => {
       const project = await resolveOpenExtProject(process.cwd());
 
       if (kind === "manifest") {
@@ -154,6 +159,9 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
       }
 
       if (kind === "permissions") {
+        if (options.advisor && (!target || target === "all")) {
+          throw new Error("Permission advisor requires a single target.");
+        }
         const result =
           !target || target === "all"
             ? createManifestReport(project).targets.map((entry) => entry.permissions)
