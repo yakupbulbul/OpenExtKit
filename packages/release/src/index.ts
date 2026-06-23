@@ -96,6 +96,26 @@ export type ExtensionReviewReport = {
   };
 };
 
+export type PublishWizardItem = {
+  target: BrowserTarget;
+  category: string;
+  status: PublishCheckStatus;
+  action: string;
+};
+
+export type PublishWizardReport = {
+  project: {
+    name: string;
+    version: string;
+  };
+  generatedAt: string;
+  status: PublishCheckStatus;
+  items: PublishWizardItem[];
+  files: {
+    json: string;
+  };
+};
+
 export async function runPublishCheck(project: OpenExtProject): Promise<PublishCheckResult> {
   const checks: PublishCheck[] = [];
   const targetReadiness: StoreReadinessTargetScore[] = [];
@@ -266,6 +286,50 @@ export async function createExtensionReview(project: OpenExtProject, target: Bro
     targets: reviewTargets,
     files: {
       json: join(project.rootDir, "dist", "reports", "review-report.json")
+    }
+  };
+
+  await writeJson(report.files.json, report);
+  return report;
+}
+
+export async function createPublishWizardReport(project: OpenExtProject, target: BrowserTarget | "all" = "all"): Promise<PublishWizardReport> {
+  const targets = target === "all" ? project.enabledTargets : [target];
+  const publishCheck = await runPublishCheck(project);
+  const items: PublishWizardItem[] = [];
+
+  for (const browserTarget of targets) {
+    const readiness = publishCheck.readiness.targets.find((entry) => entry.target === browserTarget);
+    const checks = publishCheck.checks.filter((check) => check.target === browserTarget || !check.target);
+    for (const check of checks.filter((entry) => entry.status !== "passed")) {
+      items.push({
+        target: browserTarget,
+        category: wizardCategory(check.name),
+        status: check.status,
+        action: wizardAction(check.name, check.message)
+      });
+    }
+
+    if ((readiness?.percentage ?? 0) < 100) {
+      items.push({
+        target: browserTarget,
+        category: "readiness",
+        status: readiness?.status ?? "warning",
+        action: `Improve ${browserTarget} store readiness from ${readiness?.percentage ?? 0}% to 100%.`
+      });
+    }
+  }
+
+  const report: PublishWizardReport = {
+    project: {
+      name: project.config.name,
+      version: project.config.version
+    },
+    generatedAt: new Date().toISOString(),
+    status: summarizeStatus(items.map((item) => ({ name: item.category, status: item.status, message: item.action }))),
+    items,
+    files: {
+      json: join(project.rootDir, "dist", "reports", "publish-wizard-report.json")
     }
   };
 
@@ -493,6 +557,38 @@ function existingReportLinks(project: OpenExtProject, target: BrowserTarget): Re
     release: "dist/reports/release-report.json",
     package: `dist/packages/${slugify(project.config.name)}-${target}.zip`
   };
+}
+
+function wizardCategory(name: string): string {
+  if (/description|metadata|store/.test(name)) {
+    return "metadata";
+  }
+  if (/icon|screenshot|visual/.test(name)) {
+    return "assets";
+  }
+  if (/privacy|permission/.test(name)) {
+    return "permissions/privacy";
+  }
+  if (/package/.test(name)) {
+    return "package";
+  }
+  if (/test|report/.test(name)) {
+    return "reports";
+  }
+  return "readiness";
+}
+
+function wizardAction(name: string, message: string): string {
+  const actions: Record<string, string> = {
+    "package.exists": "Run openext package for the target.",
+    "visual.screenshots": "Run openext visual for the target and review screenshots.",
+    "visual.report": "Run openext visual for the target to generate a visual report.",
+    "privacy.policy": "Add a PRIVACY.md or privacy-policy.md file.",
+    "store.metadata": "Run openext store-assets.",
+    "report.tests": "Run openext test all.",
+    "manifest.icons": "Add icon assets to the manifest configuration."
+  };
+  return actions[name] ?? message;
 }
 
 async function writeText(path: string, content: string): Promise<string> {

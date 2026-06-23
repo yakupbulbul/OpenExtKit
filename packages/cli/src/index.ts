@@ -19,7 +19,7 @@ import {
   packageAllTargets,
   packageTarget as packagePackagingTarget
 } from "@openextkit/packaging";
-import { createExtensionReview, createReleaseReport, generateStoreMetadata, runPublishCheck } from "@openextkit/release";
+import { createExtensionReview, createPublishWizardReport, createReleaseReport, generateStoreMetadata, runPublishCheck } from "@openextkit/release";
 import { startOpenExtMcpServer } from "@openextkit/mcp-server";
 import {
   applyVisualRegression,
@@ -213,6 +213,15 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
       const project = await resolveOpenExtProject(process.cwd());
       const reviewTarget = parseTargetOrAll(target);
       const report = await createExtensionReview(project, reviewTarget);
+      printResult(report, options.json);
+    });
+
+  cli
+    .command("publish-wizard <target>", "Create a non-interactive store readiness wizard report")
+    .option("--json", "Print JSON output")
+    .action(async (target: string, options: JsonOption) => {
+      const project = await resolveOpenExtProject(process.cwd());
+      const report = await createPublishWizardReport(project, parseTargetOrAll(target));
       printResult(report, options.json);
     });
 

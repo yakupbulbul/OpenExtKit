@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { resolveOpenExtProject } from "@openextkit/core";
-import { createExtensionReview, createReleaseReport, generateStoreMetadata, runPublishCheck } from "../dist/index.js";
+import { createExtensionReview, createPublishWizardReport, createReleaseReport, generateStoreMetadata, runPublishCheck } from "../dist/index.js";
 
 async function createProject() {
   const cwd = await mkdtemp(join(tmpdir(), "openext-release-"));
@@ -121,6 +121,21 @@ test("createExtensionReview writes deterministic review report", async () => {
     assert.equal(report.targets.length, 1);
     assert.equal(report.targets[0].target, "chrome");
     assert.equal(Array.isArray(report.topRisks), true);
+    assert.equal(json.project.name, "Release Fixture");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("createPublishWizardReport writes ordered readiness items", async () => {
+  const cwd = await createProject();
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const report = await createPublishWizardReport(project, "chrome");
+    const json = JSON.parse(await readFile(join(cwd, "dist/reports/publish-wizard-report.json"), "utf8"));
+
+    assert.equal(report.items.some((item) => item.target === "chrome" && item.action.length > 0), true);
     assert.equal(json.project.name, "Release Fixture");
   } finally {
     await rm(cwd, { recursive: true, force: true });
