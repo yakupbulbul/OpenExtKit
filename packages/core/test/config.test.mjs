@@ -13,6 +13,7 @@ import {
   OpenExtConfigError,
   registerTarget,
   resolveOpenExtProject,
+  suggestCompatibilityFixes,
   validateOpenExtConfig
 } from "../dist/index.js";
 
@@ -54,6 +55,21 @@ test("valid config passes and normalizes values", () => {
   assert.deepEqual(config.permissions.required, ["storage", "tabs"]);
   assert.equal(config.entrypoints.background, "src/background.ts");
   assert.deepEqual(getEnabledTargets(config), ["chrome", "firefox", "edge"]);
+});
+
+test("suggestCompatibilityFixes reports broad hosts without mutating", () => {
+  const config = validateOpenExtConfig(validConfig);
+  const project = {
+    rootDir: "/tmp/openext",
+    configPath: "/tmp/openext/openext.config.ts",
+    config,
+    enabledTargets: getEnabledTargets(config),
+    warnings: []
+  };
+  const report = suggestCompatibilityFixes(project, "firefox");
+
+  assert.equal(report.dryRun, true);
+  assert.equal(report.suggestions.some((entry) => entry.code === "host.broad"), true);
 });
 
 test("missing name fails with a useful error", () => {

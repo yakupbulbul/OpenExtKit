@@ -115,6 +115,20 @@ export type OpenExtProject = {
   warnings: string[];
 };
 
+export type CompatibilityFixSuggestion = {
+  target: BrowserTarget;
+  code: string;
+  message: string;
+  suggestedChange: string;
+  fileHint: string;
+};
+
+export type CompatibilityFixReport = {
+  target: BrowserTarget;
+  suggestions: CompatibilityFixSuggestion[];
+  dryRun: true;
+};
+
 export class OpenExtConfigError extends Error {
   readonly issues: string[];
 
@@ -215,6 +229,69 @@ export function getTarget(name: string): TargetCapabilities {
 
 export function listTargets(): TargetCapabilities[] {
   return defaultTargetRegistry.listTargets();
+}
+
+export function suggestCompatibilityFixes(project: OpenExtProject, target: BrowserTarget): CompatibilityFixReport {
+  const capabilities = getTarget(target);
+  const suggestions: CompatibilityFixSuggestion[] = [];
+
+  if (!project.enabledTargets.includes(target)) {
+    suggestions.push({
+      target,
+      code: "target.disabled",
+      message: `${target} is not enabled in openext.config.`,
+      suggestedChange: `Add ${target}: {} to the targets object.`,
+      fileHint: project.configPath
+    });
+  }
+
+  if (!capabilities.supportsDeclarativeNetRequest && project.config.permissions.required.includes("declarativeNetRequest")) {
+    suggestions.push({
+      target,
+      code: "permission.dnr.unsupported",
+      message: `${capabilities.displayName} does not support declarativeNetRequest in the current target profile.`,
+      suggestedChange: "Move DNR-specific behavior behind a Chromium-targeted code path or remove the permission for this target.",
+      fileHint: project.configPath
+    });
+  }
+
+  if (!capabilities.supportsSidePanel && project.config.permissions.required.includes("sidePanel")) {
+    suggestions.push({
+      target,
+      code: "permission.sidePanel.unsupported",
+      message: `${capabilities.displayName} does not support the sidePanel API.`,
+      suggestedChange: "Use popup/options UI for this target or gate sidePanel usage by browser target.",
+      fileHint: project.configPath
+    });
+  }
+
+  for (const host of project.config.permissions.host) {
+    if (host === "<all_urls>" || host === "*://*/*" || host.startsWith("*://*.") || host.endsWith("/*")) {
+      suggestions.push({
+        target,
+        code: "host.broad",
+        message: `Broad host permission ${host} may create store review friction.`,
+        suggestedChange: "Replace broad host access with exact HTTPS origins or optional host permissions.",
+        fileHint: project.configPath
+      });
+    }
+  }
+
+  if (target === "firefox" && project.config.entrypoints.background?.endsWith(".ts")) {
+    suggestions.push({
+      target,
+      code: "background.source",
+      message: "Firefox package output should reference built JavaScript, not TypeScript source, after build.",
+      suggestedChange: "Run openext build firefox and inspect dist/firefox/manifest.json before store submission.",
+      fileHint: "dist/firefox/manifest.json"
+    });
+  }
+
+  return {
+    target,
+    suggestions,
+    dryRun: true
+  };
 }
 
 const stringListSchema = z.array(z.string().min(1)).default([]);

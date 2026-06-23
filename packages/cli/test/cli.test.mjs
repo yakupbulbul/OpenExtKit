@@ -268,6 +268,20 @@ test("templates command exposes marketplace metadata", async () => {
   assert.equal(parsed.templates.some((entry) => entry.name === "web-clipper" && entry.category), true);
 });
 
+test("compat fix suggests changes without writing files", async () => {
+  const cwd = await createConfiguredProject();
+
+  try {
+    const result = await runCli(["compat", "fix", "firefox", "--dry-run", "--json"], { cwd });
+    const parsed = JSON.parse(result.stdout);
+
+    assert.equal(parsed.dryRun, true);
+    assert.equal(parsed.suggestions.some((entry) => entry.code === "host.broad"), true);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("release commands write publish readiness artifacts", async () => {
   const cwd = await createConfiguredProject();
 

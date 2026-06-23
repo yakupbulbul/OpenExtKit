@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
-import { browserTargets, getTarget, listTargets, loadOpenExtConfig, resolveOpenExtProject, type BrowserTarget, type OpenExtProject } from "@openextkit/core";
+import { browserTargets, getTarget, listTargets, loadOpenExtConfig, resolveOpenExtProject, suggestCompatibilityFixes, type BrowserTarget, type OpenExtProject } from "@openextkit/core";
 import {
   createManifestReport,
   generateAllManifests,
@@ -223,6 +223,21 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
       const project = await resolveOpenExtProject(process.cwd());
       const report = await createPublishWizardReport(project, parseTargetOrAll(target));
       printResult(report, options.json);
+    });
+
+  cli
+    .command("compat <action> <target>", "Suggest compatibility fixes without mutating files")
+    .option("--dry-run", "Only print suggested changes", { default: true })
+    .option("--json", "Print JSON output")
+    .action(async (action: string, target: string, options: JsonOption & { dryRun?: boolean }) => {
+      if (action !== "fix") {
+        throw new Error(`Invalid compat action "${action}". Expected "fix".`);
+      }
+      if (options.dryRun === false) {
+        throw new Error("Compatibility fixer is suggestion-only in this release. Use --dry-run.");
+      }
+      const project = await resolveOpenExtProject(process.cwd());
+      printResult(suggestCompatibilityFixes(project, parseTarget(target)), options.json);
     });
 
   cli.command("mcp", "Start the OpenExtKit MCP server over stdio").action(async () => {
