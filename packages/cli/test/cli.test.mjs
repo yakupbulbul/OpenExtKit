@@ -134,6 +134,23 @@ test("doctor target rejects invalid targets", async () => {
   }
 });
 
+test("upgrade command reports config migrations", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "openext-cli-upgrade-"));
+
+  try {
+    await writeFile(join(cwd, "openext.config.mjs"), "export default { name: 'Old', version: '0.1.0', targets: { chrome: {} }, entrypoints: {} };\n");
+    const result = await runCli(["upgrade", "--json"], { cwd });
+    const parsed = JSON.parse(result.stdout);
+    const unchanged = await readFile(join(cwd, "openext.config.mjs"), "utf8");
+
+    assert.equal(parsed.dryRun, true);
+    assert.equal(parsed.migrations.some((migration) => migration.status === "pending"), true);
+    assert.match(unchanged, /chrome: \{\}/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("inspect manifest works", async () => {
   const cwd = await createConfiguredProject();
 

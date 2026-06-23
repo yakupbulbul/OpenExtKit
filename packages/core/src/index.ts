@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, copyFile, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, normalize, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { tsImport } from "tsx/esm/api";
@@ -139,6 +139,24 @@ export type CompatibilityFixReport = {
   target: BrowserTarget;
   suggestions: CompatibilityFixSuggestion[];
   dryRun: true;
+};
+
+export type UpgradeMigrationStatus = "pending" | "applied" | "skipped" | "failed";
+
+export type UpgradeMigration = {
+  id: string;
+  status: UpgradeMigrationStatus;
+  file: string;
+  message: string;
+  before?: string;
+  after?: string;
+};
+
+export type UpgradeReport = {
+  configPath: string;
+  dryRun: boolean;
+  backupPath?: string;
+  migrations: UpgradeMigration[];
 };
 
 export class OpenExtConfigError extends Error {
@@ -442,6 +460,74 @@ export async function resolveOpenExtProject(cwd: string = process.cwd()): Promis
   };
 }
 
+export async function planOpenExtUpgrade(cwd: string = process.cwd(), options: { write?: boolean } = {}): Promise<UpgradeReport> {
+  const configPath = await findConfigPath(cwd);
+  const original = await readFile(configPath, "utf8");
+  let next = original;
+  const migrations: UpgradeMigration[] = [];
+
+  const addMigration = (id: string, message: string, before: string, after: string, apply: (source: string) => string): void => {
+    const changed = apply(next);
+    if (changed === next) {
+      migrations.push({ id, status: "skipped", file: configPath, message });
+      return;
+    }
+    migrations.push({ id, status: options.write ? "applied" : "pending", file: configPath, message, before, after });
+    next = changed;
+  };
+
+  addMigration(
+    "targets.manifest-defaults",
+    "Add explicit Manifest V3 defaults to empty target objects.",
+    "target: {}",
+    "target: { manifest: 3 }",
+    (source) => source.replace(/\b(chrome|firefox|edge|opera|safari)\s*:\s*\{\s*\}/g, "$1: { manifest: 3 }")
+  );
+
+  addMigration(
+    "permissions.defaults",
+    "Add default permissions object when missing.",
+    "missing permissions",
+    "permissions: { required: [], optional: [], host: [] }",
+    (source) => /permissions\s*:/.test(source)
+      ? source
+      : source.replace(/(\s*)entrypoints\s*:/, "$1permissions: { required: [], optional: [], host: [] },$1entrypoints:")
+  );
+
+  addMigration(
+    "targets.current-defaults",
+    "Add current Chrome, Firefox, and Edge target placeholders when a legacy target set is missing them.",
+    "legacy targets",
+    "chrome/firefox/edge targets",
+    addMissingDefaultTargets
+  );
+
+  addMigration(
+    "submission.placeholder",
+    "Add empty submission object for store submit helpers.",
+    "missing submission",
+    "submission: {}",
+    (source) => /submission\s*:/.test(source)
+      ? source
+      : source.replace(/(\s*)permissions\s*:/, "$1submission: {},$1permissions:")
+  );
+
+  const report: UpgradeReport = {
+    configPath,
+    dryRun: !options.write,
+    migrations
+  };
+
+  if (options.write && next !== original) {
+    const backupPath = `${configPath}.bak`;
+    await copyFile(configPath, backupPath);
+    await writeFile(configPath, next);
+    report.backupPath = backupPath;
+  }
+
+  return report;
+}
+
 export function getEnabledTargets(config: OpenExtConfig): BrowserTarget[] {
   return browserTargets.filter((target) => Boolean(config.targets[target]));
 }
@@ -466,6 +552,27 @@ export function getConfigWarnings(config: OpenExtConfig): string[] {
   }
 
   return warnings;
+}
+
+function addMissingDefaultTargets(source: string): string {
+  const targetsMatch = /targets\s*:\s*\{([\s\S]*?)\}(\s*,\s*\n\s*(permissions|entrypoints|submission)\s*:)/m.exec(source);
+  if (!targetsMatch) {
+    return source;
+  }
+  const block = targetsMatch[1] ?? "";
+  const fullMatch = targetsMatch[0];
+  const additions = ["chrome", "firefox", "edge"]
+    .filter((target) => !new RegExp(`\\b${target}\\s*:`).test(block))
+    .map((target) => `\n          ${target}: { manifest: 3 },`)
+    .join("");
+
+  if (!additions) {
+    return source;
+  }
+
+  return source.slice(0, targetsMatch.index)
+    + fullMatch.replace(block, `${block}${additions}`)
+    + source.slice(targetsMatch.index + fullMatch.length);
 }
 
 async function findConfigPath(cwd: string): Promise<string> {

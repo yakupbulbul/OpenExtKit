@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -11,6 +12,7 @@ import {
   listTargets,
   loadOpenExtConfig,
   OpenExtConfigError,
+  planOpenExtUpgrade,
   registerTarget,
   resolveOpenExtProject,
   suggestCompatibilityFixes,
@@ -263,6 +265,44 @@ test("resolveOpenExtProject returns project metadata", async () => {
     assert.deepEqual(project.enabledTargets, ["chrome", "safari"]);
     assert.match(project.warnings.join("\n"), /Safari support is experimental/);
     assert.match(project.configPath, /openext\.config\.mjs$/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("planOpenExtUpgrade reports migrations without mutating by default", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "openext-upgrade-"));
+  const configPath = join(cwd, "openext.config.mjs");
+
+  try {
+    await writeFile(configPath, "export default { name: 'Old', version: '0.1.0', targets: { chrome: {} }, entrypoints: {} };\n");
+    const before = await readFile(configPath, "utf8");
+    const report = await planOpenExtUpgrade(cwd);
+    const after = await readFile(configPath, "utf8");
+
+    assert.equal(report.dryRun, true);
+    assert.equal(report.migrations.some((migration) => migration.status === "pending"), true);
+    assert.equal(after, before);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("planOpenExtUpgrade writes safe migrations with a backup and is idempotent", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "openext-upgrade-write-"));
+  const configPath = join(cwd, "openext.config.mjs");
+
+  try {
+    await writeFile(configPath, "export default { name: 'Old', version: '0.1.0', targets: { chrome: {} }, entrypoints: {} };\n");
+    const report = await planOpenExtUpgrade(cwd, { write: true });
+    const upgraded = await readFile(configPath, "utf8");
+    const second = await planOpenExtUpgrade(cwd);
+
+    assert.equal(report.dryRun, false);
+    assert.equal(existsSync(`${configPath}.bak`), true);
+    assert.match(upgraded, /manifest: 3/);
+    assert.match(upgraded, /submission: \{\}/);
+    assert.equal(second.migrations.every((migration) => migration.status === "skipped"), true);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

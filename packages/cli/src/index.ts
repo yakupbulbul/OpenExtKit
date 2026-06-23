@@ -7,7 +7,7 @@ import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { browserTargets, getTarget, listTargets, loadOpenExtConfig, resolveOpenExtProject, suggestCompatibilityFixes, type BrowserTarget, type OpenExtProject } from "@openextkit/core";
+import { browserTargets, getTarget, listTargets, loadOpenExtConfig, planOpenExtUpgrade, resolveOpenExtProject, suggestCompatibilityFixes, type BrowserTarget, type OpenExtProject } from "@openextkit/core";
 import {
   createManifestReport,
   generateAllManifests,
@@ -81,6 +81,10 @@ type DashboardJob = {
 
 type InspectOptions = JsonOption & {
   advisor?: boolean;
+};
+
+type UpgradeOptions = JsonOption & {
+  write?: boolean;
 };
 
 export async function runCli(argv: string[] = process.argv): Promise<void> {
@@ -177,6 +181,15 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     .action(async (options: DoctorOptions) => {
       const result = await runDoctor(options.target);
       printResult(result, options.json);
+    });
+
+  cli
+    .command("upgrade", "Plan or apply safe OpenExtKit config migrations")
+    .option("--write", "Apply safe migrations and create a config backup")
+    .option("--json", "Print JSON output")
+    .action(async (options: UpgradeOptions) => {
+      const report = await planOpenExtUpgrade(process.cwd(), { write: options.write });
+      printResult(report, options.json);
     });
 
   cli
