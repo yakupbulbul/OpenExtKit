@@ -39,10 +39,12 @@ test("generateStoreMetadata writes store assets", async () => {
   try {
     const project = await resolveOpenExtProject(cwd);
     const result = await generateStoreMetadata(project);
-    const description = await readFile(join(cwd, "dist/store/chrome/description.md"), "utf8");
+    const description = await readFile(join(cwd, "dist/store/chrome/full-description.md"), "utf8");
+    const checklist = await readFile(join(cwd, "dist/store/chrome/screenshot-checklist.md"), "utf8");
 
-    assert.equal(result.files.length, 9);
+    assert.equal(result.files.length, 18);
     assert.match(description, /Release fixture description/);
+    assert.match(checklist, /Visual baseline/);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

@@ -174,9 +174,12 @@ export async function generateStoreMetadata(project: OpenExtProject): Promise<St
       continue;
     }
 
-    files.push(await writeText(join(targetDir, "description.md"), descriptionMetadata(project, capabilities.displayName)));
-    files.push(await writeText(join(targetDir, "permissions.md"), permissionsMetadata(project, target)));
+    files.push(await writeText(join(targetDir, "short-description.md"), shortDescriptionMetadata(project, capabilities.displayName)));
+    files.push(await writeText(join(targetDir, "full-description.md"), fullDescriptionMetadata(project, capabilities.displayName)));
+    files.push(await writeText(join(targetDir, "permissions-explanation.md"), permissionsMetadata(project, target)));
+    files.push(await writeText(join(targetDir, "privacy-answers.md"), privacyAnswersMetadata(project, target)));
     files.push(await writeText(join(targetDir, "changelog.md"), changelogMetadata(project)));
+    files.push(await writeText(join(targetDir, "screenshot-checklist.md"), screenshotChecklistMetadata(project, target)));
   }
 
   return {
@@ -498,8 +501,13 @@ async function writeText(path: string, content: string): Promise<string> {
   return path;
 }
 
-function descriptionMetadata(project: OpenExtProject, displayName: string): string {
-  return `# ${project.config.name} for ${displayName}\n\n${project.config.description ?? "Add a store-ready extension description before publishing."}\n`;
+function shortDescriptionMetadata(project: OpenExtProject, displayName: string): string {
+  const description = project.config.description ?? `${project.config.name} browser extension for ${displayName}.`;
+  return `${description.slice(0, 132)}\n`;
+}
+
+function fullDescriptionMetadata(project: OpenExtProject, displayName: string): string {
+  return `# ${project.config.name} for ${displayName}\n\n${project.config.description ?? "Add a store-ready extension description before publishing."}\n\n## Key benefits\n\n- Built from one OpenExtKit codebase.\n- Prepared for ${displayName} Manifest V3 distribution.\n- Includes generated permission and release readiness reports.\n`;
 }
 
 function permissionsMetadata(project: OpenExtProject, target: BrowserTarget): string {
@@ -520,8 +528,24 @@ function permissionsMetadata(project: OpenExtProject, target: BrowserTarget): st
   return `${lines.join("\n")}\n`;
 }
 
+function privacyAnswersMetadata(project: OpenExtProject, target: BrowserTarget): string {
+  const permissions = inspectPermissions(project, target);
+  const collectsBroadData = permissions.hostPermissions.some((permission) => permission === "<all_urls>");
+  return `# Privacy Answers for ${target}\n\n- Privacy policy: Add or link your published privacy policy before submission.\n- Data collection: Review whether ${project.config.name} collects, transmits, or sells user data.\n- Host access: ${permissions.hostPermissions.join(", ") || "none"}.\n- Broad access review: ${collectsBroadData ? "Broad host access is configured; explain why it is required." : "No broad host access detected."}\n`;
+}
+
 function changelogMetadata(project: OpenExtProject): string {
   return `# Changelog\n\n## ${project.config.version}\n\n- Initial OpenExtKit package candidate.\n`;
+}
+
+function screenshotChecklistMetadata(project: OpenExtProject, target: BrowserTarget): string {
+  const surfaces = [
+    project.config.entrypoints.popup ? "Popup" : undefined,
+    project.config.entrypoints.options ? "Options page" : undefined,
+    project.config.entrypoints.contentScripts.length > 0 ? "Content script in-page UI" : undefined
+  ].filter(Boolean);
+
+  return `# Screenshot Checklist for ${target}\n\n- [ ] Store tile/icon screenshot.\n- [ ] Primary extension surface: ${surfaces.join(", ") || "add a popup, options page, or content script surface"}.\n- [ ] Permissions or onboarding screen if applicable.\n- [ ] Visual baseline captured with openext visual ${target} --update.\n`;
 }
 
 function safariMetadata(project: OpenExtProject, displayName: string): string {
