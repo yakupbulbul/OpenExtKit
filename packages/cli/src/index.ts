@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { browserTargets, getTarget, listTargets, loadOpenExtConfig, resolveOpenExtProject, suggestCompatibilityFixes, type BrowserTarget, type OpenExtProject } from "@openextkit/core";
 import {
@@ -62,6 +64,19 @@ type VisualOptions = {
 type DashboardOptions = {
   port?: string;
   host?: string;
+};
+
+type DashboardJobStatus = "queued" | "running" | "passed" | "failed";
+
+type DashboardJob = {
+  id: string;
+  action: "build" | "test" | "package" | "doctor";
+  target?: string;
+  status: DashboardJobStatus;
+  startedAt?: string;
+  completedAt?: string;
+  exitCode?: number;
+  output: string[];
 };
 
 type InspectOptions = JsonOption & {
@@ -304,6 +319,8 @@ async function dashboard(options: DashboardOptions): Promise<void> {
   const project = await resolveOpenExtProject(process.cwd());
   const port = Number(options.port ?? 4217);
   const host = options.host ?? "127.0.0.1";
+  const token = randomBytes(16).toString("hex");
+  const jobs: DashboardJob[] = [];
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`Invalid dashboard port "${options.port}".`);
   }
@@ -313,7 +330,29 @@ async function dashboard(options: DashboardOptions): Promise<void> {
       const url = new URL(request.url ?? "/", `http://${host}:${port}`);
       if (url.pathname === "/" || url.pathname === "/index.html") {
         response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        response.end(await renderDashboard(project));
+        response.end(await renderDashboard(project, jobs, token));
+        return;
+      }
+
+      if (url.pathname === "/actions" && request.method === "POST") {
+        const body = await readRequestBody(request);
+        const form = new URLSearchParams(body);
+        if (form.get("token") !== token) {
+          response.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+          response.end("Invalid dashboard action token.");
+          return;
+        }
+
+        const action = form.get("action");
+        if (!isDashboardAction(action)) {
+          response.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+          response.end("Invalid dashboard action.");
+          return;
+        }
+
+        enqueueDashboardJob(project, jobs, action, form.get("target") ?? undefined);
+        response.writeHead(303, { location: "/" });
+        response.end();
         return;
       }
 
@@ -336,11 +375,38 @@ async function dashboard(options: DashboardOptions): Promise<void> {
     server.listen(port, host, resolveListen);
   });
   console.log(`OpenExtKit dashboard: http://${host}:${port}`);
+  console.log(`Dashboard action token: ${token}`);
 }
 
-async function renderDashboard(project: OpenExtProject): Promise<string> {
+async function renderDashboard(project: OpenExtProject, jobs: DashboardJob[] = [], token = ""): Promise<string> {
   const publishCheck = await runPublishCheck(project);
   const reports = await readReports(project);
+  const actionForms = ["build", "test", "package", "doctor"]
+    .map((action) => `<form method="post" action="/actions">
+          <input type="hidden" name="token" value="${escapeHtml(token)}" />
+          <input type="hidden" name="action" value="${action}" />
+          <label>${action}
+            <select name="target">
+              <option value="all">all</option>
+              ${project.enabledTargets.map((target) => `<option value="${escapeHtml(target)}">${escapeHtml(target)}</option>`).join("")}
+            </select>
+          </label>
+          <button type="submit">Run</button>
+        </form>`)
+    .join("");
+  const jobRows = jobs
+    .slice()
+    .reverse()
+    .map((job) => `<tr>
+        <td>${escapeHtml(job.id)}</td>
+        <td>${escapeHtml(job.action)}</td>
+        <td>${escapeHtml(job.target ?? "all")}</td>
+        <td>${escapeHtml(job.status)}</td>
+        <td>${escapeHtml(job.startedAt ?? "")}</td>
+        <td>${escapeHtml(job.completedAt ?? "")}</td>
+        <td><pre>${escapeHtml(job.output.slice(-8).join("\n"))}</pre></td>
+      </tr>`)
+    .join("");
   const targetRows = project.enabledTargets
     .map((target) => {
       const manifest = generateManifest(project, target);
@@ -374,6 +440,11 @@ async function renderDashboard(project: OpenExtProject): Promise<string> {
       main { padding: 24px; display: grid; gap: 16px; }
       .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
       .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 16px; }
+      form { display: inline-flex; gap: 8px; align-items: center; margin: 0 8px 8px 0; }
+      button, select { font: inherit; }
+      table { width: 100%; border-collapse: collapse; }
+      td, th { border-top: 1px solid #d0d7de; padding: 8px; text-align: left; vertical-align: top; }
+      pre { white-space: pre-wrap; margin: 0; max-height: 140px; overflow: auto; }
       h1, h2 { margin: 0 0 8px; }
       a { color: #0969da; }
     </style>
@@ -390,10 +461,71 @@ async function renderDashboard(project: OpenExtProject): Promise<string> {
         <p><strong>Enabled targets:</strong> ${project.enabledTargets.map(escapeHtml).join(", ")}</p>
         <p><strong>Reports:</strong> ${Object.keys(reports).join(", ") || "none"}</p>
       </section>
+      <section class="card">
+        <h2>Actions</h2>
+        ${actionForms}
+      </section>
+      <section class="card">
+        <h2>Jobs</h2>
+        <table>
+          <thead><tr><th>ID</th><th>Action</th><th>Target</th><th>Status</th><th>Started</th><th>Completed</th><th>Output</th></tr></thead>
+          <tbody>${jobRows || "<tr><td colspan=\"7\">No jobs yet.</td></tr>"}</tbody>
+        </table>
+      </section>
       <section class="grid">${targetRows}</section>
     </main>
   </body>
 </html>`;
+}
+
+export function enqueueDashboardJob(project: OpenExtProject, jobs: DashboardJob[], action: DashboardJob["action"], target?: string): DashboardJob {
+  const job: DashboardJob = {
+    id: String(jobs.length + 1),
+    action,
+    target: target || "all",
+    status: "queued",
+    output: []
+  };
+  jobs.push(job);
+  void runDashboardJob(project, job);
+  return job;
+}
+
+async function runDashboardJob(project: OpenExtProject, job: DashboardJob): Promise<void> {
+  job.status = "running";
+  job.startedAt = new Date().toISOString();
+  try {
+    if (job.action === "build") {
+      job.target === "all" ? await buildAllTargets(project) : await buildPackagingTarget(project, parseTarget(job.target ?? "all"));
+    } else if (job.action === "package") {
+      job.target === "all" ? await packageAllTargets(project) : await packagePackagingTarget(project, parseTarget(job.target ?? "all"));
+    } else if (job.action === "test") {
+      job.target === "all" ? await runAllBrowserSmokeTests(project) : await runBrowserSmokeTest(project, parseTarget(job.target ?? "all"));
+    } else {
+      await runDoctor(job.target === "all" ? undefined : job.target);
+    }
+    job.output.push(`${job.action} ${job.target ?? "all"} completed.`);
+    job.status = "passed";
+    job.exitCode = 0;
+  } catch (error) {
+    job.output.push(error instanceof Error ? error.message : String(error));
+    job.status = "failed";
+    job.exitCode = 1;
+  } finally {
+    job.completedAt = new Date().toISOString();
+  }
+}
+
+export function isDashboardAction(action: string | null): action is DashboardJob["action"] {
+  return action === "build" || action === "test" || action === "package" || action === "doctor";
+}
+
+async function readRequestBody(request: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 async function readReports(project: OpenExtProject): Promise<Record<string, any>> {
@@ -807,8 +939,10 @@ function printResult(result: unknown, json = false): void {
   console.log(JSON.stringify(result, null, 2));
 }
 
-runCli().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(message);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runCli().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exitCode = 1;
+  });
+}

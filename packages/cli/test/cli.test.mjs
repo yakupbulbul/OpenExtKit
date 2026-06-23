@@ -4,7 +4,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { resolveOpenExtProject } from "@openextkit/core";
 import test from "node:test";
+import { enqueueDashboardJob, isDashboardAction } from "../dist/index.js";
 
 const execFileAsync = promisify(execFile);
 const cliPath = resolve("dist/index.js");
@@ -168,6 +170,27 @@ test("build writes target manifest", async () => {
     const manifest = JSON.parse(await readFile(join(cwd, "dist/chrome/manifest.json"), "utf8"));
 
     assert.equal(manifest.name, "CLI Test");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("dashboard action queue validates actions and records jobs", async () => {
+  const cwd = await createConfiguredProject();
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const jobs = [];
+    assert.equal(isDashboardAction("doctor"), true);
+    assert.equal(isDashboardAction("bad"), false);
+
+    const job = enqueueDashboardJob(project, jobs, "doctor", "all");
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+
+    assert.equal(jobs.length, 1);
+    assert.equal(job.action, "doctor");
+    assert.equal(["running", "passed", "failed"].includes(job.status), true);
+    assert.equal(job.output.length > 0 || job.status === "running", true);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
