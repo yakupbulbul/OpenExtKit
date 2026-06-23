@@ -1,4 +1,4 @@
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getTarget, type BrowserTarget, type OpenExtProject } from "@openextkit/core";
 import { createManifestReport, generateManifest, inspectPermissions } from "@openextkit/manifest";
@@ -69,6 +69,30 @@ export type ReleaseReport = {
   files: {
     json: string;
     markdown: string;
+  };
+};
+
+export type ExtensionReviewTarget = {
+  target: BrowserTarget;
+  status: PublishCheckStatus;
+  risks: string[];
+  recommendedFixes: string[];
+  reports: Record<string, string>;
+};
+
+export type ExtensionReviewReport = {
+  project: {
+    name: string;
+    version: string;
+  };
+  generatedAt: string;
+  status: PublishCheckStatus;
+  summary: string;
+  topRisks: string[];
+  recommendedNextFixes: string[];
+  targets: ExtensionReviewTarget[];
+  files: {
+    json: string;
   };
 };
 
@@ -184,6 +208,65 @@ export async function createReleaseReport(project: OpenExtProject): Promise<Rele
 
   await writeJson(report.files.json, report);
   await writeText(report.files.markdown, releaseReportMarkdown(report));
+  return report;
+}
+
+export async function createExtensionReview(project: OpenExtProject, target: BrowserTarget | "all" = "all"): Promise<ExtensionReviewReport> {
+  const targets = target === "all" ? project.enabledTargets : [target];
+  const publishCheck = await runPublishCheck(project);
+  const visualReport = await readJson(join(project.rootDir, "dist", "reports", "visual-test-report.json"));
+  const regressionReport = await readJson(join(project.rootDir, "dist", "reports", "visual-regression-report.json"));
+  const testReport = await readJson(join(project.rootDir, "dist", "reports", "test-report.json"));
+  const reviewTargets: ExtensionReviewTarget[] = [];
+
+  for (const browserTarget of targets) {
+    const permissions = inspectPermissions(project, browserTarget);
+    const readiness = publishCheck.readiness.targets.find((entry) => entry.target === browserTarget);
+    const targetChecks = publishCheck.checks.filter((check) => !check.target || check.target === browserTarget);
+    const visualTarget = visualReport?.targets?.find((entry: { target: BrowserTarget }) => entry.target === browserTarget);
+    const testTarget = testReport?.targets?.find((entry: { target: BrowserTarget }) => entry.target === browserTarget);
+    const regressionFailures = regressionReport?.comparisons?.filter((entry: { target: BrowserTarget; status: PublishCheckStatus }) => entry.target === browserTarget && entry.status === "failed") ?? [];
+    const risks = [
+      ...targetChecks.filter((check) => check.status !== "passed").map((check) => `${check.name}: ${check.message}`),
+      ...permissions.findings.map((finding) => `${finding.code}: ${finding.message}`),
+      ...(visualTarget?.errors ?? []).map((message: string) => `visual: ${message}`),
+      ...(testTarget?.errors ?? []).map((message: string) => `test: ${message}`),
+      ...regressionFailures.map((entry: { surface: string; message: string }) => `visual regression ${entry.surface}: ${entry.message}`)
+    ];
+
+    reviewTargets.push({
+      target: browserTarget,
+      status: summarizeStatus(targetChecks),
+      risks,
+      recommendedFixes: recommendFixes(risks, readiness?.percentage ?? 0),
+      reports: existingReportLinks(project, browserTarget)
+    });
+  }
+
+  const topRisks = reviewTargets.flatMap((entry) => entry.risks).slice(0, 10);
+  const recommendedNextFixes = [...new Set(reviewTargets.flatMap((entry) => entry.recommendedFixes))].slice(0, 10);
+  const status = summarizeStatus(reviewTargets.map((entry) => ({
+    name: entry.target,
+    status: entry.status,
+    message: entry.risks.join("; ")
+  })));
+  const report: ExtensionReviewReport = {
+    project: {
+      name: project.config.name,
+      version: project.config.version
+    },
+    generatedAt: new Date().toISOString(),
+    status,
+    summary: topRisks.length === 0 ? "No major review risks found." : `${topRisks.length} review risks found across ${reviewTargets.length} target(s).`,
+    topRisks,
+    recommendedNextFixes,
+    targets: reviewTargets,
+    files: {
+      json: join(project.rootDir, "dist", "reports", "review-report.json")
+    }
+  };
+
+  await writeJson(report.files.json, report);
   return report;
 }
 
@@ -367,6 +450,46 @@ async function exists(path: string, kind: "file" | "directory" = "file"): Promis
 
 async function writeJson(path: string, value: unknown): Promise<string> {
   return writeText(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+async function readJson(path: string): Promise<any | undefined> {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function recommendFixes(risks: string[], readiness: number): string[] {
+  const fixes: string[] = [];
+  if (readiness < 100) {
+    fixes.push("Raise store readiness by generating missing packages, reports, metadata, screenshots, and privacy files.");
+  }
+  if (risks.some((risk) => /package\.exists/.test(risk))) {
+    fixes.push("Run openext package for the affected target.");
+  }
+  if (risks.some((risk) => /visual/.test(risk))) {
+    fixes.push("Run visual tests and update or compare baselines.");
+  }
+  if (risks.some((risk) => /permission|host|privacy/.test(risk))) {
+    fixes.push("Review permissions, host patterns, and store privacy explanations.");
+  }
+  if (risks.some((risk) => /test/.test(risk))) {
+    fixes.push("Run smoke tests and address failed checks.");
+  }
+  return fixes.length > 0 ? fixes : ["Keep reports current before publishing."];
+}
+
+function existingReportLinks(project: OpenExtProject, target: BrowserTarget): Record<string, string> {
+  return {
+    manifest: "dist/reports/manifest-report.json",
+    permissions: "dist/reports/permissions-report.json",
+    tests: "dist/reports/test-report.json",
+    visual: "dist/reports/visual-test-report.json",
+    regression: "dist/reports/visual-regression-report.json",
+    release: "dist/reports/release-report.json",
+    package: `dist/packages/${slugify(project.config.name)}-${target}.zip`
+  };
 }
 
 async function writeText(path: string, content: string): Promise<string> {

@@ -266,11 +266,13 @@ test("release commands write publish readiness artifacts", async () => {
   try {
     const assets = await runCli(["store-assets"], { cwd });
     const check = await runCli(["publish-check"], { cwd });
+    const review = await runCli(["review", "all", "--json"], { cwd });
     const report = await runCli(["release-report"], { cwd });
     const description = await readFile(join(cwd, "dist/store/chrome/description.md"), "utf8");
     const markdown = await readFile(join(cwd, "dist/reports/release-report.md"), "utf8");
     const json = JSON.parse(await readFile(join(cwd, "dist/reports/release-report.json"), "utf8"));
     const parsedCheck = JSON.parse(check.stdout);
+    const parsedReview = JSON.parse(review.stdout);
 
     assert.match(assets.stdout, /Store metadata written/);
     assert.match(report.stdout, /Release report written/);
@@ -280,6 +282,7 @@ test("release commands write publish readiness artifacts", async () => {
     assert.equal(json.project.name, "CLI Test");
     assert.equal(typeof json.publishCheck.readiness.percentage, "number");
     assert.equal(typeof parsedCheck.readiness.percentage, "number");
+    assert.equal(parsedReview.targets.some((entry) => entry.target === "chrome"), true);
     assert.equal(parsedCheck.checks.some((entry) => entry.name === "package.exists"), true);
   } finally {
     await rm(cwd, { recursive: true, force: true });

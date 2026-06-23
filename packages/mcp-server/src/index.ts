@@ -27,6 +27,7 @@ import {
   packageTarget
 } from "@openextkit/packaging";
 import {
+  createExtensionReview,
   createReleaseReport as createReleaseReportArtifact,
   generateStoreMetadata,
   runPublishCheck
@@ -64,6 +65,7 @@ export const mcpToolNames = [
   "suggest_target_changes",
   "generate_store_metadata",
   "run_publish_check",
+  "review_extension",
   "explain_last_error",
   "create_release_report"
 ] as const;
@@ -367,6 +369,16 @@ export function createOpenExtMcpTools(): McpToolDefinition[] {
         assertAllowedProject(project, context);
         return runPublishCheck(project);
       })
+    },
+    {
+      name: "review_extension",
+      description: "Create a deterministic agent-friendly extension review report.",
+      inputSchema: { projectPath: projectPathSchema, target: z.union([targetSchema, z.literal("all")]).default("all") },
+      handler: wrapTool("review_extension", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        const target = input.target === "all" || typeof input.target !== "string" ? "all" : readTarget(input);
+        return createExtensionReview(project, target);
+      }, ["dist/reports/review-report.json"])
     },
     {
       name: "explain_last_error",

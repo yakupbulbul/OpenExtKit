@@ -19,7 +19,7 @@ import {
   packageAllTargets,
   packageTarget as packagePackagingTarget
 } from "@openextkit/packaging";
-import { createReleaseReport, generateStoreMetadata, runPublishCheck } from "@openextkit/release";
+import { createExtensionReview, createReleaseReport, generateStoreMetadata, runPublishCheck } from "@openextkit/release";
 import { startOpenExtMcpServer } from "@openextkit/mcp-server";
 import {
   applyVisualRegression,
@@ -188,6 +188,16 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     const project = await resolveOpenExtProject(process.cwd());
     printResult(await runPublishCheck(project));
   });
+
+  cli
+    .command("review <target>", "Create a deterministic extension review report")
+    .option("--json", "Print JSON output")
+    .action(async (target: string, options: JsonOption) => {
+      const project = await resolveOpenExtProject(process.cwd());
+      const reviewTarget = parseTargetOrAll(target);
+      const report = await createExtensionReview(project, reviewTarget);
+      printResult(report, options.json);
+    });
 
   cli.command("mcp", "Start the OpenExtKit MCP server over stdio").action(async () => {
     await startOpenExtMcpServer({

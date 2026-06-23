@@ -250,6 +250,7 @@ test("release MCP tools generate metadata and reports", async () => {
   try {
     const metadata = await runOpenExtMcpTool("generate_store_metadata", {}, { cwd });
     const check = await runOpenExtMcpTool("run_publish_check", {}, { cwd });
+    const review = await runOpenExtMcpTool("review_extension", { target: "all" }, { cwd });
     const report = await runOpenExtMcpTool("create_release_report", {}, { cwd });
     const description = await readFile(join(cwd, "dist/store/chrome/description.md"), "utf8");
     const markdown = await readFile(join(cwd, "dist/reports/release-report.md"), "utf8");
@@ -259,6 +260,8 @@ test("release MCP tools generate metadata and reports", async () => {
     assert.equal(check.status, "ok");
     assert.equal(typeof check.data.readiness.percentage, "number");
     assert.equal(check.data.checks.some((entry) => entry.name === "package.exists"), true);
+    assert.equal(review.status, "ok");
+    assert.equal(review.data.targets.some((entry) => entry.target === "chrome"), true);
     assert.equal(report.status, "ok");
     assert.equal(typeof report.data.publishCheck.readiness.percentage, "number");
     assert.equal(report.data.files.markdown.endsWith("release-report.md"), true);

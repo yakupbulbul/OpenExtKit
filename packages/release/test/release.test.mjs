@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { resolveOpenExtProject } from "@openextkit/core";
-import { createReleaseReport, generateStoreMetadata, runPublishCheck } from "../dist/index.js";
+import { createExtensionReview, createReleaseReport, generateStoreMetadata, runPublishCheck } from "../dist/index.js";
 
 async function createProject() {
   const cwd = await mkdtemp(join(tmpdir(), "openext-release-"));
@@ -103,6 +103,23 @@ test("store readiness score improves with generated artifacts", async () => {
     assert.equal(chrome.score > 0, true);
     assert.equal(chrome.categories.some((category) => category.category === "package" && category.status === "passed"), true);
     assert.equal(chrome.categories.some((category) => category.category === "visual" && category.status === "passed"), true);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("createExtensionReview writes deterministic review report", async () => {
+  const cwd = await createProject();
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const report = await createExtensionReview(project, "chrome");
+    const json = JSON.parse(await readFile(join(cwd, "dist/reports/review-report.json"), "utf8"));
+
+    assert.equal(report.targets.length, 1);
+    assert.equal(report.targets[0].target, "chrome");
+    assert.equal(Array.isArray(report.topRisks), true);
+    assert.equal(json.project.name, "Release Fixture");
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
