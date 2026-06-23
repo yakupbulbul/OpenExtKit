@@ -23,10 +23,12 @@ import { createExtensionReview, createPublishWizardReport, createReleaseReport, 
 import { startOpenExtMcpServer } from "@openextkit/mcp-server";
 import {
   applyVisualRegression,
+  e2eRecipeNames,
   runAllBrowserSmokeTests,
   runAllBrowserVisualTests,
   runBrowserSmokeTest,
   runBrowserVisualTest,
+  runExtensionE2ETests,
   startBrowserDevSession
 } from "@openextkit/testing";
 import { isTemplateName, listTemplateMetadata, templateNames, writeTemplate } from "@openextkit/templates";
@@ -101,6 +103,17 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   cli.command("test <target>", "Run browser extension smoke tests").action(async (target: string) => {
     await testTarget(target);
   });
+
+  cli
+    .command("e2e <target>", "Run built-in extension E2E recipes")
+    .option("--recipe <name>", "Run one built-in recipe")
+    .option("--json", "Print JSON output")
+    .action(async (target: string, options: JsonOption & { recipe?: string }) => {
+      const project = await resolveOpenExtProject(process.cwd());
+      const recipe = options.recipe ? parseE2ERecipe(options.recipe) : undefined;
+      const report = await runExtensionE2ETests(project, parseTarget(target), recipe);
+      printResult(report, options.json);
+    });
 
   cli
     .command("visual <target>", "Run visual browser extension tests and capture screenshots")
@@ -764,6 +777,14 @@ function parseTarget(target: string): BrowserTarget {
 
 function parseTargetOrAll(target: string): BrowserTarget | "all" {
   return target === "all" ? "all" : parseTarget(target);
+}
+
+function parseE2ERecipe(recipe: string): (typeof e2eRecipeNames)[number] {
+  if (e2eRecipeNames.includes(recipe as (typeof e2eRecipeNames)[number])) {
+    return recipe as (typeof e2eRecipeNames)[number];
+  }
+
+  throw new Error(`Invalid E2E recipe "${recipe}". Expected one of: ${e2eRecipeNames.join(", ")}.`);
 }
 
 function assertTargetEnabled(enabledTargets: BrowserTarget[], target: BrowserTarget): void {

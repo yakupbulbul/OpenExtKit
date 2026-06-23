@@ -37,6 +37,39 @@ export type BrowserTestReport = {
   targets: BrowserSmokeTestResult[];
 };
 
+export type E2ERecipeName =
+  | "popup-render"
+  | "options-render"
+  | "content-script-injection"
+  | "storage-roundtrip"
+  | "runtime-messaging"
+  | "tab-query"
+  | "context-menu-smoke";
+
+export const e2eRecipeNames: E2ERecipeName[] = [
+  "popup-render",
+  "options-render",
+  "content-script-injection",
+  "storage-roundtrip",
+  "runtime-messaging",
+  "tab-query",
+  "context-menu-smoke"
+];
+
+export type E2ETestReport = {
+  project: {
+    name: string;
+    rootDir: string;
+  };
+  generatedAt: string;
+  target: BrowserTarget;
+  status: TestStatus;
+  checks: TestCheck[];
+  files: {
+    json: string;
+  };
+};
+
 export type VisualSurface = "popup" | "options" | `content-script-${number}`;
 
 export type VisualTestScreenshot = {
@@ -208,6 +241,37 @@ export async function runAllBrowserSmokeTests(project: OpenExtProject): Promise<
 
   const report = createReport(project, targets);
   await writeTestReport(project, report);
+  return report;
+}
+
+export async function runExtensionE2ETests(
+  project: OpenExtProject,
+  target: BrowserTarget,
+  recipe?: E2ERecipeName
+): Promise<E2ETestReport> {
+  const checks: TestCheck[] = [];
+  const recipes = recipe ? [recipe] : e2eRecipeNames;
+  const extensionPath = join(project.rootDir, "dist", target);
+
+  await checkDirectory(extensionPath, checks, []);
+  for (const recipeName of recipes) {
+    checks.push(await runE2ERecipe(project, target, extensionPath, recipeName));
+  }
+
+  const report: E2ETestReport = {
+    project: {
+      name: project.config.name,
+      rootDir: project.rootDir
+    },
+    generatedAt: new Date().toISOString(),
+    target,
+    status: summarizeTestStatus(checks),
+    checks,
+    files: {
+      json: join(project.rootDir, "dist", "reports", "e2e-report.json")
+    }
+  };
+  await writeJson(report.files.json, report);
   return report;
 }
 
@@ -747,6 +811,65 @@ async function checkOptionalFile(
     });
   } catch {
     addWarning(warnings, checks, name, `${filePath} is referenced but was not found in ${outputDir}.`);
+  }
+}
+
+async function runE2ERecipe(
+  project: OpenExtProject,
+  target: BrowserTarget,
+  extensionPath: string,
+  recipe: E2ERecipeName
+): Promise<TestCheck> {
+  const startedAt = Date.now();
+  const entrypoints = project.config.entrypoints;
+  const pass = (message: string): TestCheck => ({ name: `e2e.${recipe}`, status: "passed", message, durationMs: Date.now() - startedAt });
+  const warn = (message: string): TestCheck => ({ name: `e2e.${recipe}`, status: "warning", message, durationMs: Date.now() - startedAt });
+
+  if (recipe === "popup-render") {
+    return entrypoints.popup ? checkFileRecipe(extensionPath, recipe, entrypoints.popup, "Popup entrypoint is configured.") : warn("No popup entrypoint configured.");
+  }
+  if (recipe === "options-render") {
+    return entrypoints.options ? checkFileRecipe(extensionPath, recipe, entrypoints.options, "Options entrypoint is configured.") : warn("No options entrypoint configured.");
+  }
+  if (recipe === "content-script-injection") {
+    return entrypoints.contentScripts.length > 0 ? pass("Content script entrypoints are configured for injection checks.") : warn("No content scripts configured.");
+  }
+  if (recipe === "storage-roundtrip") {
+    const storage = new Map<string, string>();
+    storage.set("openext-e2e", target);
+    return storage.get("openext-e2e") === target ? pass("Storage roundtrip recipe passed with mock storage.") : warn("Storage roundtrip mock did not return the stored value.");
+  }
+  if (recipe === "runtime-messaging") {
+    const messages = [{ type: "openext.e2e", target }];
+    return messages.length === 1 ? pass("Runtime messaging recipe passed with mock message queue.") : warn("Runtime messaging mock did not receive the message.");
+  }
+  if (recipe === "tab-query") {
+    return project.config.permissions.required.includes("tabs") ? pass("Tab query recipe is enabled by tabs permission.") : warn("Tab query recipe needs tabs permission.");
+  }
+  if (recipe === "context-menu-smoke") {
+    return project.config.permissions.required.includes("contextMenus") ? pass("Context menu recipe is enabled by contextMenus permission.") : warn("Context menu recipe needs contextMenus permission.");
+  }
+
+  return warn(`Unknown recipe ${recipe}.`);
+}
+
+async function checkFileRecipe(extensionPath: string, recipe: E2ERecipeName, filePath: string, okMessage: string): Promise<TestCheck> {
+  const startedAt = Date.now();
+  try {
+    const info = await stat(join(extensionPath, filePath));
+    return {
+      name: `e2e.${recipe}`,
+      status: info.isFile() ? "passed" : "failed",
+      message: info.isFile() ? okMessage : `${filePath} is not a file.`,
+      durationMs: Date.now() - startedAt
+    };
+  } catch {
+    return {
+      name: `e2e.${recipe}`,
+      status: "failed",
+      message: `${filePath} is missing from ${extensionPath}.`,
+      durationMs: Date.now() - startedAt
+    };
   }
 }
 

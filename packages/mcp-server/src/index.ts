@@ -35,10 +35,12 @@ import {
 import { listTemplateMetadata, templateNames, writeTemplate } from "@openextkit/templates";
 import {
   applyVisualRegression,
+  e2eRecipeNames,
   runAllBrowserSmokeTests,
   runAllBrowserVisualTests,
   runBrowserSmokeTest,
-  runBrowserVisualTest
+  runBrowserVisualTest,
+  runExtensionE2ETests
 } from "@openextkit/testing";
 import { z } from "zod";
 
@@ -58,6 +60,7 @@ export const mcpToolNames = [
   "run_all_browser_tests",
   "run_visual_tests",
   "run_all_visual_tests",
+  "run_e2e_tests",
   "create_extension_project",
   "list_templates",
   "list_browser_targets",
@@ -101,6 +104,7 @@ const visualOptionsSchema = {
   record: z.boolean().default(false),
   threshold: z.number().min(0).max(1).optional()
 };
+const e2eRecipeSchema = z.enum(e2eRecipeNames as [string, ...string[]]).optional();
 
 export function createOpenExtMcpServer(context: Partial<OpenExtMcpContext> = {}): McpServer {
   const server = new McpServer({
@@ -285,6 +289,17 @@ export function createOpenExtMcpTools(): McpToolDefinition[] {
         assertAllowedProject(project, context);
         return runAllBrowserVisualTests(project, readVisualOptions(input));
       }, ["dist/reports/visual", "dist/reports/visual-test-report.json"])
+    },
+    {
+      name: "run_e2e_tests",
+      description: "Run built-in deterministic extension E2E recipes for one browser target.",
+      inputSchema: { projectPath: projectPathSchema, target: targetSchema, recipe: e2eRecipeSchema },
+      handler: wrapTool("run_e2e_tests", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        assertAllowedProject(project, context);
+        const recipe = typeof input.recipe === "string" ? input.recipe as (typeof e2eRecipeNames)[number] : undefined;
+        return runExtensionE2ETests(project, readTarget(input), recipe);
+      }, ["dist/reports/e2e-report.json"])
     },
     {
       name: "create_extension_project",

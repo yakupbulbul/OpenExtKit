@@ -232,6 +232,21 @@ test("test all writes browser smoke report", async () => {
   }
 });
 
+test("e2e command writes recipe report", async () => {
+  const cwd = await createConfiguredProject();
+
+  try {
+    await runCli(["build", "chrome"], { cwd });
+    const result = await runCli(["e2e", "chrome", "--recipe", "popup-render", "--json"], { cwd });
+    const parsed = JSON.parse(result.stdout);
+
+    assert.equal(parsed.target, "chrome");
+    assert.equal(parsed.checks.some((check) => check.name === "e2e.popup-render"), true);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("visual all reports missing browser executable clearly", async () => {
   const cwd = await createConfiguredProject();
 

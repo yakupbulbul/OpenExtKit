@@ -169,6 +169,20 @@ test("run_all_browser_tests works", async () => {
   }
 });
 
+test("run_e2e_tests works", async () => {
+  const cwd = await createProject();
+
+  try {
+    await runOpenExtMcpTool("build_all_targets", {}, { cwd });
+    const result = await runOpenExtMcpTool("run_e2e_tests", { target: "chrome", recipe: "popup-render" }, { cwd });
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.data.checks.some((check) => check.name === "e2e.popup-render"), true);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("run_all_visual_tests reports missing executable clearly", async () => {
   const cwd = await createProject();
   const previousExecutable = process.env.OPENEXTKIT_CHROME_EXECUTABLE;

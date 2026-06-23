@@ -13,6 +13,7 @@ import {
   runAllBrowserVisualTests,
   runBrowserVisualTest,
   runBrowserSmokeTest,
+  runExtensionE2ETests,
   startBrowserDevSession
 } from "../dist/index.js";
 
@@ -166,6 +167,22 @@ test("test all aggregates results and writes a report", async () => {
 
     assert.equal(report.targets.length, 2);
     assert.deepEqual(written.targets.map((entry) => entry.target), ["chrome", "firefox"]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("E2E recipes write a structured report", async () => {
+  const cwd = await createProject({ targets: { chrome: {} } });
+
+  try {
+    const project = await resolveOpenExtProject(cwd);
+    const report = await runExtensionE2ETests(project, "chrome", "popup-render");
+    const written = JSON.parse(await readFile(join(cwd, "dist/reports/e2e-report.json"), "utf8"));
+
+    assert.equal(report.target, "chrome");
+    assert.equal(report.checks.some((check) => check.name === "e2e.popup-render"), true);
+    assert.equal(written.target, "chrome");
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
