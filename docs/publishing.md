@@ -11,6 +11,7 @@ openext package all
 openext publish-check
 openext publish-wizard all
 openext store-assets
+openext submit-assets all
 openext release-report
 ```
 
@@ -18,4 +19,6 @@ openext release-report
 
 `publish-wizard` emits an ordered non-interactive checklist for store readiness. Store metadata now includes short description, full description, permission explanations, privacy answers, changelog, and screenshot checklist files under `dist/store/<target>/`.
 
-OpenExtKit does not submit extensions to stores in V1. Review the generated ZIPs, `dist/reports`, and `dist/store` files before using each browser store's own submission process.
+`submit-assets` creates upload-ready local folders under `dist/submit/<target>/`. Each folder contains copied package and metadata files when available, `submission-checklist.md`, and `submission-config.json`.
+
+OpenExtKit does not submit extensions to stores in V1. Review the generated ZIPs, `dist/reports`, `dist/store`, and `dist/submit` files before using each browser store's own submission process. Optional `submission` config values can store listing IDs and public listing URLs, but no credentials or network publishing are used.

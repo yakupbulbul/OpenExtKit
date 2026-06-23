@@ -38,7 +38,7 @@ openext doctor --json
 
 ## Dashboard and Review
 
-Serve a read-only local dashboard:
+Serve a local dashboard:
 
 ```sh
 openext dashboard
@@ -46,6 +46,7 @@ openext dashboard --host 127.0.0.1 --port 4217
 ```
 
 The dashboard reads existing reports and screenshots from `dist/reports` and shows target status, manifest and permission summaries, store readiness, visual screenshots, and report links.
+It also exposes token-protected local actions for build, test, package, and doctor jobs. The action token is printed when the dashboard starts.
 
 Create an agent-friendly deterministic review:
 
@@ -65,3 +66,19 @@ openext compat fix firefox --dry-run --json
 ```
 
 Suggestions cover unsupported permissions/APIs, broad host patterns, disabled targets, and target capability mismatches.
+
+## Config Upgrades
+
+Plan safe config migrations without editing files:
+
+```sh
+openext upgrade --json
+```
+
+Apply the safe migrations and write a backup next to the config:
+
+```sh
+openext upgrade --write
+```
+
+Initial migrations add explicit Manifest V3 defaults, default permissions, current template target placeholders, and the `submission` config placeholder used by submit assets.

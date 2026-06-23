@@ -27,8 +27,10 @@ pnpm exec openext build all
 pnpm exec openext doctor --target chrome
 pnpm exec openext test all
 pnpm exec openext e2e chrome
+pnpm exec openext e2e chrome --recipe-file openext.e2e.json
 pnpm exec openext package all
 pnpm exec openext review all
+pnpm exec openext submit-assets all
 pnpm exec openext release-report
 ```
 
@@ -73,12 +75,14 @@ Useful MCP tools include `build_all_targets`, `run_diagnostics`, `run_all_browse
 ## Developer Workflows
 
 - `openext dev chrome` builds the target, launches a persistent browser profile with the unpacked extension, opens the first popup/options surface when available, watches files, rebuilds, and reloads the extension.
-- `openext dashboard` serves a read-only local project dashboard for targets, reports, screenshots, and store readiness.
+- `openext dashboard` serves a local project dashboard with token-protected build, test, package, and doctor actions.
 - `openext review all --json` writes a deterministic agent-friendly review report.
+- `openext upgrade --json` plans safe config migrations; `openext upgrade --write` applies them after creating a backup.
 - `openext doctor --target chrome` reports target-specific configuration, manifest, permissions, package, report, store metadata, visual screenshot, and browser executable status.
-- `openext publish-check`, `openext publish-wizard all`, and `openext release-report` include store readiness and ordered publishing fixes.
+- `openext publish-check`, `openext publish-wizard all`, `openext submit-assets all`, and `openext release-report` include store readiness and local submission assets.
 - `openext compat fix firefox --dry-run` suggests compatibility patches without editing files.
 - Rich templates are available with `openext init my-extension --template ai-sidebar`, `command-palette`, `tab-manager`, `local-productivity-blocker`, `new-tab-dashboard`, and `context-menu-tool`.
+- `openext templates gallery` serves a local preview gallery for all templates.
 
 More details are in `docs/development.md`, `docs/testing.md`, `docs/templates.md`, `docs/browser-support.md`, `docs/publishing.md`, and `docs/mcp-tools.md`.
 
@@ -134,6 +138,11 @@ OpenExtKit is a pnpm and Turborepo monorepo made of small packages:
 - Phase 31: compatibility fix suggestions.
 - Phase 32: built-in E2E recipes.
 - Phase 33: MCP visual review tool.
+- Phase 35: token-protected dashboard action queue.
+- Phase 36: JSON E2E recipe files.
+- Phase 37: local store submission asset helpers.
+- Phase 38: config upgrade planner.
+- Phase 39: template preview gallery.
 
 ## Status
 

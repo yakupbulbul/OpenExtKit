@@ -33,3 +33,12 @@ List marketplace metadata with:
 ```sh
 openext templates --json
 ```
+
+Serve the local preview gallery with:
+
+```sh
+openext templates gallery
+openext templates gallery --host 127.0.0.1 --port 4218
+```
+
+The gallery uses generated SVG previews from template metadata and shows categories, tags, permissions, entrypoints, and init commands.

@@ -36,6 +36,11 @@
 - Phase 31: compatibility fix suggestions.
 - Phase 32: built-in E2E recipes.
 - Phase 33: MCP visual review tool.
+- Phase 35: dashboard action queue.
+- Phase 36: custom JSON E2E recipe files.
+- Phase 37: local store submission asset helpers.
+- Phase 38: config upgrade planning.
+- Phase 39: template preview gallery.
 
 ## Experimental
 

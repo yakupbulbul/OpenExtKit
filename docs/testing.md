@@ -55,6 +55,9 @@ Run deterministic built-in E2E recipe checks:
 ```sh
 openext e2e chrome
 openext e2e chrome --recipe popup-render --json
+openext e2e chrome --recipe-file openext.e2e.json --json
 ```
 
 Recipes cover popup render, options render, content script injection, storage roundtrip, runtime messaging, tab query, and context menu smoke. Reports are written to `dist/reports/e2e-report.json`.
+
+Custom JSON recipe files contain a `name` and ordered `steps`. Supported actions are `openPopup`, `openOptions`, `openContentPage`, `click`, `type`, `expectText`, `expectSelector`, `setStorage`, `expectStorage`, `reload`, and `screenshot`.
