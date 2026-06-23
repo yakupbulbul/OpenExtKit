@@ -9,7 +9,8 @@ import {
   createManifestReport,
   generateAllManifests,
   generateManifest,
-  inspectPermissions
+  inspectPermissions,
+  validateManifest
 } from "@openextkit/manifest";
 import {
   buildAllTargets,
@@ -33,6 +34,10 @@ import { cac } from "cac";
 const execFileAsync = promisify(execFile);
 type JsonOption = {
   json?: boolean;
+};
+
+type DoctorOptions = JsonOption & {
+  target?: string;
 };
 
 type InitOptions = {
@@ -112,8 +117,9 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   cli
     .command("doctor", "Check local OpenExtKit project setup")
     .option("--json", "Print JSON output")
-    .action(async (options: JsonOption) => {
-      const result = await runDoctor();
+    .option("--target <target>", "Run diagnostics for one browser target")
+    .action(async (options: DoctorOptions) => {
+      const result = await runDoctor(options.target);
       printResult(result, options.json);
     });
 
@@ -353,7 +359,8 @@ async function visualTarget(target: string, options: VisualOptions = {}): Promis
   }
 }
 
-async function runDoctor(): Promise<Record<string, unknown>> {
+async function runDoctor(target?: string): Promise<Record<string, unknown>> {
+  const browserTarget = target ? parseTarget(target) : undefined;
   const checks: Array<Record<string, unknown>> = [
     {
       name: "node",
@@ -376,6 +383,11 @@ async function runDoctor(): Promise<Record<string, unknown>> {
       ok: true,
       detail: Object.keys(config.targets).join(", ")
     });
+
+    if (browserTarget) {
+      const project = await resolveOpenExtProject(process.cwd());
+      checks.push(...(await runTargetDiagnostics(project, browserTarget)));
+    }
   } catch (error) {
     checks.push({
       name: "config",
@@ -398,6 +410,78 @@ async function runDoctor(): Promise<Record<string, unknown>> {
   };
 }
 
+async function runTargetDiagnostics(project: OpenExtProject, target: BrowserTarget): Promise<Array<Record<string, unknown>>> {
+  const checks: Array<Record<string, unknown>> = [];
+  const capabilities = getTarget(target);
+  const enabled = project.enabledTargets.includes(target);
+  const packageName = `${slugify(project.config.name)}-${target}.zip`;
+
+  checks.push({
+    name: "target.enabled",
+    target,
+    ok: enabled,
+    detail: enabled ? `${target} is enabled` : `${target} is not enabled`
+  });
+
+  if (!enabled) {
+    return checks;
+  }
+
+  const manifest = generateManifest(project, target);
+  const manifestValidation = validateManifest(manifest, target);
+  const permissions = inspectPermissions(project, target);
+  checks.push({
+    name: "manifest.valid",
+    target,
+    ok: manifestValidation.valid,
+    detail: manifestValidation.valid ? "Manifest validates" : manifestValidation.errors.join("; ")
+  });
+  checks.push({
+    name: "permissions.valid",
+    target,
+    ok: permissions.findings.every((finding) => finding.level !== "error"),
+    detail: permissions.findings.length === 0 ? "No permission findings" : permissions.findings.map((finding) => finding.message).join("; ")
+  });
+  checks.push({
+    name: "browser.executable",
+    target,
+    ok: !capabilities.supportsExtensionLoadingInTests || Boolean(process.env[getExecutableEnvName(target)]),
+    detail: capabilities.supportsExtensionLoadingInTests ? `Set ${getExecutableEnvName(target)} for browser automation` : "Browser automation is not supported for this target"
+  });
+  checks.push({
+    name: "package.exists",
+    target,
+    ok: await fileExists(join(project.rootDir, "dist", "packages", packageName)),
+    detail: `Expected dist/packages/${packageName}`
+  });
+  checks.push({
+    name: "report.manifest",
+    target,
+    ok: await fileExists(join(project.rootDir, "dist", "reports", "manifest-report.json")),
+    detail: "Expected dist/reports/manifest-report.json"
+  });
+  checks.push({
+    name: "report.tests",
+    target,
+    ok: await fileExists(join(project.rootDir, "dist", "reports", "test-report.json")),
+    detail: "Expected dist/reports/test-report.json"
+  });
+  checks.push({
+    name: "store.metadata",
+    target,
+    ok: await directoryExists(join(project.rootDir, "dist", "store", target)),
+    detail: `Expected dist/store/${target}`
+  });
+  checks.push({
+    name: "visual.screenshots",
+    target,
+    ok: await directoryExists(join(project.rootDir, "dist", "reports", "visual", target)),
+    detail: `Expected dist/reports/visual/${target}`
+  });
+
+  return checks;
+}
+
 async function commandCheck(command: string, args: string[]): Promise<Record<string, unknown>> {
   try {
     const result = await execFileAsync(command, args);
@@ -414,6 +498,41 @@ async function commandCheck(command: string, args: string[]): Promise<Record<str
       detail: `${command} was not found on PATH`
     };
   }
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function directoryExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function getExecutableEnvName(target: BrowserTarget): string {
+  if (target === "edge") {
+    return "OPENEXTKIT_EDGE_EXECUTABLE";
+  }
+
+  if (target === "chrome") {
+    return "OPENEXTKIT_CHROME_EXECUTABLE";
+  }
+
+  return `OPENEXTKIT_${target.toUpperCase()}_EXECUTABLE`;
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
 }
 
 async function ensureEmptyDirectory(targetDir: string): Promise<void> {

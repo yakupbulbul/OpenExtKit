@@ -90,6 +90,31 @@ test("doctor runs with JSON output", async () => {
   }
 });
 
+test("doctor target reports browser-specific diagnostics", async () => {
+  const cwd = await createConfiguredProject();
+
+  try {
+    const result = await runCli(["doctor", "--target", "chrome", "--json"], { cwd });
+    const parsed = JSON.parse(result.stdout);
+
+    assert.equal(parsed.checks.some((check) => check.name === "target.enabled" && check.ok), true);
+    assert.equal(parsed.checks.some((check) => check.name === "browser.executable" && !check.ok), true);
+    assert.equal(parsed.checks.some((check) => check.name === "visual.screenshots"), true);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("doctor target rejects invalid targets", async () => {
+  const cwd = await createConfiguredProject();
+
+  try {
+    await assert.rejects(() => runCli(["doctor", "--target", "brave"], { cwd }), /Invalid target/);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("inspect manifest works", async () => {
   const cwd = await createConfiguredProject();
 

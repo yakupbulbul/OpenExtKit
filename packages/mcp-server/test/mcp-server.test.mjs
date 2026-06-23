@@ -83,6 +83,20 @@ test("validate_config works", async () => {
   }
 });
 
+test("run_diagnostics works with target checks", async () => {
+  const cwd = await createProject();
+
+  try {
+    const result = await runOpenExtMcpTool("run_diagnostics", { target: "chrome" }, { cwd });
+
+    assert.equal(result.status, "ok");
+    assert.equal(result.data.checks.some((check) => check.name === "target.enabled" && check.ok), true);
+    assert.equal(result.data.checks.some((check) => check.name === "visual.screenshots"), true);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("generate_manifest works", async () => {
   const cwd = await createProject();
 

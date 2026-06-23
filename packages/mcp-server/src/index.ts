@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readdir } from "node:fs/promises";
+import { appendFile, mkdir, readdir, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -17,7 +17,8 @@ import {
 import {
   createManifestReport,
   generateManifest,
-  inspectPermissions
+  inspectPermissions,
+  validateManifest
 } from "@openextkit/manifest";
 import {
   buildAllTargets,
@@ -44,6 +45,7 @@ export const mcpServerPackageName = "@openextkit/mcp-server";
 export const mcpToolNames = [
   "get_project_info",
   "validate_config",
+  "run_diagnostics",
   "generate_manifest",
   "inspect_permissions",
   "check_browser_compatibility",
@@ -151,6 +153,16 @@ export function createOpenExtMcpTools(): McpToolDefinition[] {
           valid: true,
           config: validateOpenExtConfig(config)
         };
+      })
+    },
+    {
+      name: "run_diagnostics",
+      description: "Run target-aware project diagnostics for config, manifest, permissions, artifacts, and automation setup.",
+      inputSchema: { projectPath: projectPathSchema, target: targetSchema.optional() },
+      handler: wrapTool("run_diagnostics", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        const target = typeof input.target === "string" ? readTarget(input) : undefined;
+        return runDiagnostics(project, target);
       })
     },
     {
@@ -483,6 +495,71 @@ function readVisualOptions(input: Record<string, unknown>): { update?: boolean; 
   };
 }
 
+async function runDiagnostics(project: OpenExtProject, target?: BrowserTarget): Promise<Record<string, unknown>> {
+  const checks: Array<Record<string, unknown>> = [
+    {
+      name: "config",
+      ok: true,
+      detail: "OpenExtKit config found"
+    },
+    {
+      name: "targets",
+      ok: true,
+      detail: project.enabledTargets.join(", ")
+    }
+  ];
+
+  if (!target) {
+    return {
+      ok: checks.every((check) => check.ok),
+      checks
+    };
+  }
+
+  const enabled = project.enabledTargets.includes(target);
+  checks.push({
+    name: "target.enabled",
+    target,
+    ok: enabled,
+    detail: enabled ? `${target} is enabled` : `${target} is not enabled`
+  });
+
+  if (enabled) {
+    const manifest = generateManifest(project, target);
+    const manifestValidation = validateManifest(manifest, target);
+    const permissions = inspectPermissions(project, target);
+    checks.push({
+      name: "manifest.valid",
+      target,
+      ok: manifestValidation.valid,
+      detail: manifestValidation.valid ? "Manifest validates" : manifestValidation.errors.join("; ")
+    });
+    checks.push({
+      name: "permissions.valid",
+      target,
+      ok: permissions.findings.every((finding) => finding.level !== "error"),
+      detail: permissions.findings.length === 0 ? "No permission findings" : permissions.findings.map((finding) => finding.message).join("; ")
+    });
+    checks.push({
+      name: "package.exists",
+      target,
+      ok: await fileExists(join(project.rootDir, "dist", "packages", `${slugify(project.config.name)}-${target}.zip`)),
+      detail: `Expected dist/packages/${slugify(project.config.name)}-${target}.zip`
+    });
+    checks.push({
+      name: "visual.screenshots",
+      target,
+      ok: await directoryExists(join(project.rootDir, "dist", "reports", "visual", target)),
+      detail: `Expected dist/reports/visual/${target}`
+    });
+  }
+
+  return {
+    ok: checks.every((check) => check.ok),
+    checks
+  };
+}
+
 function readRequiredString(input: Record<string, unknown>, key: string): string {
   const value = input[key];
 
@@ -507,6 +584,29 @@ async function assertEmptyOrMissingDirectory(targetDir: string): Promise<void> {
 
     throw error;
   }
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function directoryExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
 }
 
 async function writeAuditLog(
