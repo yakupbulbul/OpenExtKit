@@ -222,6 +222,20 @@ test("run_all_visual_tests accepts regression options", async () => {
   }
 });
 
+test("visual_review returns agent-friendly review payload", async () => {
+  const cwd = await createProject();
+
+  try {
+    const result = await runOpenExtMcpTool("visual_review", { target: "all" }, { cwd });
+
+    assert.equal(result.status, "ok");
+    assert.equal(Array.isArray(result.data.recommendedNextFixes), true);
+    assert.equal(typeof result.data.readiness.percentage, "number");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("audit log is written", async () => {
   const cwd = await createProject();
 

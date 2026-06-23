@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readdir, stat } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -69,6 +69,7 @@ export const mcpToolNames = [
   "generate_store_metadata",
   "run_publish_check",
   "review_extension",
+  "visual_review",
   "explain_last_error",
   "create_release_report"
 ] as const;
@@ -397,6 +398,27 @@ export function createOpenExtMcpTools(): McpToolDefinition[] {
       }, ["dist/reports/review-report.json"])
     },
     {
+      name: "visual_review",
+      description: "Return screenshots, visual diffs, readiness, permission risks, and next fixes for agent UI review.",
+      inputSchema: { projectPath: projectPathSchema, target: z.union([targetSchema, z.literal("all")]).default("all") },
+      handler: wrapTool("visual_review", async (input, context) => {
+        const project = await resolveProject(context, readProjectPath(input));
+        const target = input.target === "all" || typeof input.target !== "string" ? "all" : readTarget(input);
+        const review = await createExtensionReview(project, target);
+        const publishCheck = await runPublishCheck(project);
+        const visual = await readJson(join(project.rootDir, "dist", "reports", "visual-test-report.json"));
+        const regression = await readJson(join(project.rootDir, "dist", "reports", "visual-regression-report.json"));
+        return {
+          review,
+          readiness: publishCheck.readiness,
+          visual,
+          regression,
+          permissionRisks: review.targets.flatMap((entry) => entry.risks.filter((risk) => /permission|host|privacy/.test(risk))),
+          recommendedNextFixes: review.recommendedNextFixes
+        };
+      }, ["dist/reports/review-report.json"])
+    },
+    {
       name: "explain_last_error",
       description: "Return the last MCP tool error observed by this server process.",
       inputSchema: {},
@@ -628,6 +650,14 @@ async function directoryExists(path: string): Promise<boolean> {
     return (await stat(path)).isDirectory();
   } catch {
     return false;
+  }
+}
+
+async function readJson(path: string): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    return undefined;
   }
 }
 
