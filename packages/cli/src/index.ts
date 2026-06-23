@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
 import { watch, type FSWatcher } from "node:fs";
-import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { createServer } from "node:http";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import { browserTargets, getTarget, listTargets, loadOpenExtConfig, resolveOpenExtProject, type BrowserTarget, type OpenExtProject } from "@openextkit/core";
 import {
@@ -55,6 +56,11 @@ type VisualOptions = {
   threshold?: string;
 };
 
+type DashboardOptions = {
+  port?: string;
+  host?: string;
+};
+
 export async function runCli(argv: string[] = process.argv): Promise<void> {
   const cli = cac("openext");
 
@@ -77,6 +83,14 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     .command("build [target]", "Build extension output for one target or all targets")
     .action(async (target: string | undefined) => {
       await buildTarget(target ?? "all");
+    });
+
+  cli
+    .command("dashboard", "Serve a read-only local project dashboard")
+    .option("--port <number>", "Dashboard port", { default: "4217" })
+    .option("--host <host>", "Dashboard host", { default: "127.0.0.1" })
+    .action(async (options: DashboardOptions) => {
+      await dashboard(options);
     });
 
   cli.command("test <target>", "Run browser extension smoke tests").action(async (target: string) => {
@@ -220,6 +234,150 @@ async function buildTarget(target: string): Promise<void> {
   const browserTarget = parseTarget(target);
   const result = await buildPackagingTarget(project, browserTarget);
   console.log(`Built ${browserTarget} at ${result.outputDir}.`);
+}
+
+async function dashboard(options: DashboardOptions): Promise<void> {
+  const project = await resolveOpenExtProject(process.cwd());
+  const port = Number(options.port ?? 4217);
+  const host = options.host ?? "127.0.0.1";
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid dashboard port "${options.port}".`);
+  }
+
+  const server = createServer(async (request, response) => {
+    try {
+      const url = new URL(request.url ?? "/", `http://${host}:${port}`);
+      if (url.pathname === "/" || url.pathname === "/index.html") {
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.end(await renderDashboard(project));
+        return;
+      }
+
+      if (url.pathname.startsWith("/reports/")) {
+        const filePath = join(project.rootDir, "dist", "reports", url.pathname.slice("/reports/".length));
+        response.writeHead(200, { "content-type": contentType(filePath) });
+        response.end(await readFile(filePath));
+        return;
+      }
+
+      response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Not found");
+    } catch (error) {
+      response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+      response.end(error instanceof Error ? error.message : String(error));
+    }
+  });
+
+  await new Promise<void>((resolveListen) => {
+    server.listen(port, host, resolveListen);
+  });
+  console.log(`OpenExtKit dashboard: http://${host}:${port}`);
+}
+
+async function renderDashboard(project: OpenExtProject): Promise<string> {
+  const publishCheck = await runPublishCheck(project);
+  const reports = await readReports(project);
+  const targetRows = project.enabledTargets
+    .map((target) => {
+      const manifest = generateManifest(project, target);
+      const permissions = inspectPermissions(project, target);
+      const readiness = publishCheck.readiness.targets.find((entry) => entry.target === target);
+      const screenshots = reports.visual?.targets
+        ?.find((entry: { target: BrowserTarget }) => entry.target === target)
+        ?.screenshots?.map((screenshot: { surface: string; path: string }) => `<li>${escapeHtml(screenshot.surface)}: ${escapeHtml(relativeReportPath(project, screenshot.path))}</li>`)
+        ?.join("") ?? "";
+
+      return `<section class="card">
+        <h2>${escapeHtml(target)}</h2>
+        <p><strong>Manifest:</strong> MV${manifest.manifest_version}</p>
+        <p><strong>Readiness:</strong> ${readiness ? `${readiness.percentage}% (${readiness.status})` : "not scored"}</p>
+        <p><strong>Permissions:</strong> ${escapeHtml(permissions.permissions.join(", ") || "none")}</p>
+        <p><strong>Host permissions:</strong> ${escapeHtml(permissions.hostPermissions.join(", ") || "none")}</p>
+        <p><strong>Findings:</strong> ${permissions.findings.length}</p>
+        <ul>${screenshots}</ul>
+      </section>`;
+    })
+    .join("");
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>OpenExtKit Dashboard</title>
+    <style>
+      body { margin: 0; font: 14px system-ui, sans-serif; color: #1f2328; background: #f6f8fa; }
+      header { padding: 24px; background: #fff; border-bottom: 1px solid #d0d7de; }
+      main { padding: 24px; display: grid; gap: 16px; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+      .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 16px; }
+      h1, h2 { margin: 0 0 8px; }
+      a { color: #0969da; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>${escapeHtml(project.config.name)}</h1>
+      <p>${escapeHtml(project.config.description ?? "No description")} · ${escapeHtml(project.config.version)}</p>
+    </header>
+    <main>
+      <section class="card">
+        <h2>Project Status</h2>
+        <p><strong>Overall readiness:</strong> ${publishCheck.readiness.percentage}% (${publishCheck.status})</p>
+        <p><strong>Enabled targets:</strong> ${project.enabledTargets.map(escapeHtml).join(", ")}</p>
+        <p><strong>Reports:</strong> ${Object.keys(reports).join(", ") || "none"}</p>
+      </section>
+      <section class="grid">${targetRows}</section>
+    </main>
+  </body>
+</html>`;
+}
+
+async function readReports(project: OpenExtProject): Promise<Record<string, any>> {
+  return {
+    manifest: await readJsonIfExists(join(project.rootDir, "dist", "reports", "manifest-report.json")),
+    permissions: await readJsonIfExists(join(project.rootDir, "dist", "reports", "permissions-report.json")),
+    tests: await readJsonIfExists(join(project.rootDir, "dist", "reports", "test-report.json")),
+    visual: await readJsonIfExists(join(project.rootDir, "dist", "reports", "visual-test-report.json")),
+    regression: await readJsonIfExists(join(project.rootDir, "dist", "reports", "visual-regression-report.json")),
+    release: await readJsonIfExists(join(project.rootDir, "dist", "reports", "release-report.json"))
+  };
+}
+
+async function readJsonIfExists(path: string): Promise<any | undefined> {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function relativeReportPath(project: OpenExtProject, path: string): string {
+  const relativePath = relative(join(project.rootDir, "dist", "reports"), path);
+  return relativePath.startsWith("..") ? path : `/reports/${relativePath}`;
+}
+
+function contentType(path: string): string {
+  if (path.endsWith(".json")) {
+    return "application/json; charset=utf-8";
+  }
+
+  if (path.endsWith(".png")) {
+    return "image/png";
+  }
+
+  if (path.endsWith(".md")) {
+    return "text/markdown; charset=utf-8";
+  }
+
+  return "application/octet-stream";
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 async function devTarget(target: string, options: DevOptions): Promise<void> {

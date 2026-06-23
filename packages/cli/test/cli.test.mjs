@@ -59,6 +59,7 @@ test("CLI help prints commands", async () => {
   assert.match(result.stdout, /openext/);
   assert.match(result.stdout, /init/);
   assert.match(result.stdout, /doctor/);
+  assert.match(result.stdout, /dashboard/);
 });
 
 test("init creates a vanilla project", async () => {
